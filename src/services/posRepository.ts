@@ -1122,14 +1122,91 @@ export async function receivePurchaseOrderInFirestore(
   }
 }
 
-export async function refundSaleInFirestore(businessId: string, saleId: string) {
+export async function refundSaleInFirestore(
+  businessId: string,
+  saleId: string,
+  actorUid: string,
+  actorName: string
+) {
   if (!db) return;
   const path = `businesses/${businessId}/sales/${saleId}`;
   try {
-    await updateDoc(doc(db, 'businesses', businessId, 'sales', saleId), {
-      status: 'refunded',
+    await runTransaction(db, async (tx) => {
+      const saleRef = doc(db!, 'businesses', businessId, 'sales', saleId);
+      const saleSnap = await tx.get(saleRef);
+      if (!saleSnap.exists()) throw new Error('Sale not found.');
+      const sale = saleSnap.data() as Sale;
+      if (sale.status === 'refunded') return;
+      if (sale.status !== 'completed') throw new Error('Only completed sales can be refunded.');
+
+      const items = sale.items.filter((item) => !item.isCustom);
+      const productRefs = items.map((item) =>
+        doc(db!, 'businesses', businessId, 'products', item.productId)
+      );
+      const productSnaps = await Promise.all(productRefs.map((ref) => tx.get(ref)));
+      const customerRef = sale.customerId
+        ? doc(db!, 'businesses', businessId, 'customers', sale.customerId)
+        : null;
+      const customerSnap = customerRef ? await tx.get(customerRef) : null;
+
+      // Complete every read before writing so the refund is atomic.
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        const productSnap = productSnaps[index];
+        if (!productSnap.exists()) {
+          throw new Error(`Cannot refund: product "${item.name}" no longer exists.`);
+        }
+        const previousStock = Number(productSnap.data().stockQuantity ?? 0);
+        const newStock = previousStock + item.quantity;
+        tx.update(productSnap.ref, {
+          stockQuantity: newStock,
+          updatedAt: serverTimestamp(),
+        });
+
+        const movementId = generateId('mov');
+        tx.set(
+          doc(db!, 'businesses', businessId, 'stockMovements', movementId),
+          omitUndefined({
+            id: movementId,
+            businessId,
+            productId: item.productId,
+            productName: item.name.slice(0, FIELD_LIMITS.PRODUCT_NAME_MAX),
+            locationId: productSnap.data().locationId
+              ? String(productSnap.data().locationId)
+              : sale.locationId,
+            type: 'in',
+            quantityDelta: item.quantity,
+            previousStock,
+            newStock,
+            reason: `Refund ${sale.receiptNumber}`.slice(0, FIELD_LIMITS.REASON_MAX),
+            referenceId: saleId,
+            actorUid,
+            actorName: actorName.slice(0, FIELD_LIMITS.NAME_MAX),
+            createdAt: serverTimestamp(),
+          })
+        );
+      }
+
+      if (customerSnap?.exists()) {
+        const customer = customerSnap.data();
+        tx.update(customerSnap.ref, {
+          totalSpent: roundMoney(Math.max(0, Number(customer.totalSpent ?? 0) - sale.grandTotal)),
+          ordersCount: Math.max(0, Number(customer.ordersCount ?? 0) - 1),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      tx.update(saleRef, { status: 'refunded' });
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === 'Sale not found.' ||
+        error.message === 'Only completed sales can be refunded.' ||
+        error.message.startsWith('Cannot refund:'))
+    ) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
