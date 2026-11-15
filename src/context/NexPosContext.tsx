@@ -1201,7 +1201,16 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Demo mode atomic validation & update
       updateDemoActive((ds) => {
-        const inventoriedItems = params.items.filter((item) => !item.isCustom);
+        const soldByProduct = new Map<string, SaleItem>();
+        for (const item of params.items) {
+          if (item.isCustom) continue;
+          const existing = soldByProduct.get(item.productId);
+          soldByProduct.set(
+            item.productId,
+            existing ? { ...existing, quantity: existing.quantity + item.quantity } : { ...item }
+          );
+        }
+        const inventoriedItems = [...soldByProduct.values()];
         for (const item of inventoriedItems) {
           const prod = ds.products.find((p) => p.id === item.productId);
           if (!prod) throw new Error(`Product ${item.name} not found.`);
@@ -1214,7 +1223,7 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         const newMovements: StockMovement[] = [];
         const updatedProducts = ds.products.map((p) => {
-          const sold = inventoriedItems.find((i) => i.productId === p.id);
+          const sold = soldByProduct.get(p.id);
           if (!sold) return p;
           const nextStock = p.stockQuantity - sold.quantity;
           newMovements.push({
