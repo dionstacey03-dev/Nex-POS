@@ -343,6 +343,7 @@ service cloud.firestore {
         allow update: if isValidId(businessId) && isValidId(employeeId) && isVerified()
           && isValidEmployee(incoming(), businessId, employeeId)
           && isBusinessOwnerOrAdmin(businessId)
+          && (memberRole(businessId) == 'owner' || incoming().role in ['manager', 'cashier'])
           && incoming().uid == existing().uid
           && incoming().businessId == existing().businessId
           && incoming().createdAt == existing().createdAt
@@ -493,10 +494,13 @@ service cloud.firestore {
           && incoming().createdByUid == request.auth.uid
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time;
+        // Receiving is a trusted server transaction so clients cannot mark
+        // an order received without incrementing stock and writing movements.
         allow update: if isValidId(businessId) && isValidId(purchaseId) && isVerified()
           && isBusinessManagerOrAbove(businessId)
           && isValidPurchase(incoming(), businessId, purchaseId)
           && existing().status == 'ordered'
+          && incoming().status == 'cancelled'
           && incoming().id == existing().id
           && incoming().businessId == existing().businessId
           && incoming().createdByUid == existing().createdByUid
