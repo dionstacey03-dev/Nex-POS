@@ -832,6 +832,7 @@ export async function executeSaleTransactionInFirestore(
   const result = await callTrustedPosApi<{ sale: Sale }>(
     '/api/businesses/' + encodeURIComponent(businessId) + '/checkout',
     {
+      requestId: sale.id,
       items: sale.items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
