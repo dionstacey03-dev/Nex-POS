@@ -12,7 +12,7 @@ NexPOS is a universal point-of-sale and business-management application built fo
 - Customer and supplier records
 - Purchase orders, sales history, reports, and settings
 - Firebase Authentication and Cloud Firestore
-- Trusted server-side checkout, refunds, purchase receiving, and stock adjustments using Firestore REST commits with document-version preconditions persistence
+- Trusted server-side checkout, refunds, purchase receiving, and stock adjustments using Firestore REST commits with document-version preconditions
 - Demo mode with sample data when cloud mode is not configured
 - AI-assisted inventory restock forecasting through a server-side Gemini endpoint
 - Touch-friendly interactions, barcode entry, receipt printing, themes, and optional haptic/audio feedback
@@ -53,7 +53,7 @@ NexPOS is a universal point-of-sale and business-management application built fo
    FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
    ```
 
-   `FIREBASE_SERVICE_ACCOUNT_JSON` must contain the complete one-line service-account JSON for the same Firebase project. Create a dedicated service account with the minimum Firestore access required, store the value only in `.env` or the hosting provider's secret manager, and never expose it through a `VITE_` variable. Never commit `.env`, service-account files, private keys, or other credentials.
+   `FIREBASE_SERVICE_ACCOUNT_JSON` must contain the complete one-line service-account JSON for the same Firebase project. Create a dedicated service account for the same Firebase project, grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Firestore User role), store the value only in `.env` or the hosting provider's secret manager, and never expose it through a `VITE_` variable. Never commit `.env`, service-account files, private keys, or other credentials.
 
 4. Start the application:
 
@@ -86,6 +86,12 @@ Firebase web API keys identify a Firebase project; they are not service-account 
 | `bun run start` | Start the Express server |
 | `bun run preview` | Preview the Vite production bundle |
 | `bun run clean` | Remove the generated `dist` directory |
+
+## Trusted POS transaction API
+
+The Express server exposes authenticated endpoints for checkout, refunds, stock adjustments, and purchase receiving. Each request must include a Firebase ID token. The server verifies the token and active employee role, then uses the server-only service account to read authoritative prices/stock and commit related records atomically with Firestore document-version preconditions. This prevents browser clients from directly changing the sales ledger, stock ledger, inventory quantities, or customer financial totals.
+
+The trusted endpoints require `FIREBASE_SERVICE_ACCOUNT_JSON`. If this secret is absent or invalid, these operations fail closed; demo mode remains available. Deploy the updated `firestore.rules` to the exact configured database before testing cloud mode. Never use a broad owner key in client code.
 
 ## AI stock forecasting
 
