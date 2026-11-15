@@ -337,10 +337,13 @@ async function secureStockAdjust(req: Request, res: Response): Promise<void> {
   const biz=req.params.businessId,pid=req.params.productId,body=req.body||{};
   if(!validDocId(biz)||!validDocId(pid)){res.status(400).json({error:'Invalid product.'});return;}
   const actor=await authorizeBusiness(req,res,biz,['owner','admin','manager']);if(!actor)return;
-  if(!['in','out','adjustment'].includes(body.type)||!Number.isInteger(body.quantityChange)||body.quantityChange<0||typeof body.reason!=='string'||!body.reason.trim()){res.status(400).json({error:'Invalid stock adjustment.'});return;}
-  try{const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(404).json({error:'Product not found.'});return;}
+  if(!['in','out','adjustment'].includes(body.type)||!Number.isInteger(body.quantityChange)||body.quantityChange<0||typeof body.reason!=='string'||!body.reason.trim()||!validDocId(body.requestId)){res.status(400).json({error:'Invalid stock adjustment.'});return;}
+  try{
+    const priorMovement=await serverRead('businesses/'+biz+'/stockMovements/'+body.requestId);
+    if(priorMovement){if(priorMovement.data.actorUid!==actor.uid||priorMovement.data.productId!==pid){res.status(409).json({error:'Adjustment request ID is already in use.'});return;}res.json({stockQuantity:priorMovement.data.newStock,alreadyApplied:true});return;}
+    const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(404).json({error:'Product not found.'});return;}
     const prev=Number(p.data.stockQuantity||0),delta=body.type==='in'?body.quantityChange:body.type==='out'?-body.quantityChange:body.quantityChange-prev,next=prev+delta;
-    if(next<0){res.status(409).json({error:'Insufficient stock.'});return;}const now=new Date().toISOString(),mid=makeId('mov');
+    if(next<0){res.status(409).json({error:'Insufficient stock.'});return;}const now=new Date().toISOString(),mid=body.requestId;
     await serverCommit([fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},p.updateTime),fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:pid,productName:String(p.data.name).slice(0,140),type:body.type,quantityDelta:delta,previousStock:prev,newStock:next,reason:String(body.reason).trim().slice(0,240),actorUid:actor.uid,actorName:actor.name,createdAt:now})]);
     res.json({stockQuantity:next});
   }catch(e){const err=e as any;res.status(err.statusCode||503).json({error:err.message||'Stock adjustment failed.'});}
