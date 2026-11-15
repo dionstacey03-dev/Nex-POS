@@ -1195,8 +1195,9 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
 
       if (mode === 'firebase') {
-        await executeSaleTransactionInFirestore(activeBusiness.id, saleRecord);
-        return saleRecord;
+        // The trusted API recalculates prices, tax, discounts and stock from
+        // current Firestore records. Use its persisted sale for the receipt.
+        return await executeSaleTransactionInFirestore(activeBusiness.id, saleRecord);
       }
 
       // Demo mode atomic validation & update
