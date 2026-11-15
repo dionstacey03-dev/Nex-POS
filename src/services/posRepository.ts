@@ -881,6 +881,42 @@ export async function refundSaleInFirestore(
   );
 }
 
+
+export async function createPurchaseOrderInFirestore(businessId: string, purchase: PurchaseOrder): Promise<void> {
+  if (!db) throw new Error('Firestore is not initialized.');
+  const path = 'businesses/' + businessId + '/purchases/' + purchase.id;
+  try {
+    await setDoc(doc(db, 'businesses', businessId, 'purchases', purchase.id), omitUndefined({
+      id: purchase.id,
+      businessId,
+      purchaseNumber: purchase.purchaseNumber,
+      supplierId: purchase.supplierId,
+      supplierName: purchase.supplierName,
+      locationId: purchase.locationId,
+      items: purchase.items,
+      totalCost: roundMoney(purchase.totalCost),
+      status: 'ordered',
+      createdByUid: auth?.currentUser?.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function receivePurchaseOrderInFirestore(
+  businessId: string,
+  purchaseId: string,
+  _actorUid: string,
+  _actorName: string
+): Promise<void> {
+  await callTrustedPosApi(
+    '/api/businesses/' + encodeURIComponent(businessId) + '/purchases/' + encodeURIComponent(purchaseId) + '/receive',
+    {}
+  );
+}
+
 export async function saveEmployeeInFirestore(
   businessId: string,
   employee: Omit<Employee, 'createdAt' | 'updatedAt'>,
