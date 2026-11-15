@@ -338,7 +338,8 @@ service cloud.firestore {
           && incoming().updatedAt == request.time
           && (
             (employeeId == request.auth.uid && incoming().role == 'owner' && isBusinessDocOwnerAfter(businessId)) ||
-            isBusinessOwnerOrAdmin(businessId)
+            (isBusinessOwnerOrAdmin(businessId)
+              && (memberRole(businessId) == 'owner' || incoming().role in ['manager', 'cashier']))
           );
         allow update: if isValidId(businessId) && isValidId(employeeId) && isVerified()
           && isValidEmployee(incoming(), businessId, employeeId)
