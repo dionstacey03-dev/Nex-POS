@@ -11,7 +11,8 @@ NexPOS is a universal point-of-sale and business-management application built fo
 - Inventory adjustments, stock movement history, and low-stock visibility
 - Customer and supplier records
 - Purchase orders, sales history, reports, and settings
-- Firebase Authentication and Cloud Firestore persistence
+- Firebase Authentication and Cloud Firestore
+- Trusted server-side checkout, refunds, purchase receiving, and stock adjustments using Firestore REST commits with document-version preconditions persistence
 - Demo mode with sample data when cloud mode is not configured
 - AI-assisted inventory restock forecasting through a server-side Gemini endpoint
 - Touch-friendly interactions, barcode entry, receipt printing, themes, and optional haptic/audio feedback
@@ -45,13 +46,14 @@ NexPOS is a universal point-of-sale and business-management application built fo
 
    With npm, use `npm install`.
 
-3. Copy `.env.example` to `.env` and configure the server-side Gemini key if AI forecasting is required:
+3. Copy `.env.example` to `.env`. Configure the Firebase service account for trusted POS operations and the Gemini key if AI forecasting is required:
 
    ```env
    GEMINI_API_KEY=your_gemini_api_key
+   FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
    ```
 
-   Never commit `.env`, service-account files, private keys, or other credentials.
+   `FIREBASE_SERVICE_ACCOUNT_JSON` must contain the complete one-line service-account JSON for the same Firebase project. Create a dedicated service account with the minimum Firestore access required, store the value only in `.env` or the hosting provider's secret manager, and never expose it through a `VITE_` variable. Never commit `.env`, service-account files, private keys, or other credentials.
 
 4. Start the application:
 
@@ -100,7 +102,9 @@ AI output is advisory. Verify purchase quantities and supplier lead times before
 - [ ] Add a distributed edge/API-gateway quota, monitoring, and cost limits for Gemini usage; the in-process limiter is only a secondary safeguard.
 - [ ] Configure `TRUST_PROXY=1` only when the app is deployed behind one trusted reverse proxy.
 - [ ] Configure HTTPS, environment secrets, backups, and production monitoring.
-- [ ] Test concurrent checkouts, refunds, stock adjustments, and purchase-order receiving.
+- [x] Browser clients cannot directly write sales, stock movements, stock quantities, or customer financial aggregates; trusted server endpoints handle checkout, refunds, purchase receiving, and stock adjustments.
+- [ ] Configure `FIREBASE_SERVICE_ACCOUNT_JSON` in the server secret manager and test all trusted endpoints against the intended Firebase project.
+- [ ] Test concurrent checkouts, refunds, stock adjustments, and purchase-order receiving using concurrent requests and stale document versions.
 - [ ] Confirm that payment methods labelled card/other are only recorded as payment methods; no card processing occurs without a payment gateway integration.
 
 ## Important
