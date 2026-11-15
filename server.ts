@@ -96,6 +96,7 @@ interface FirebaseTokenClaims {
   exp: number;
   iat: number;
   auth_time: number;
+  email_verified?: boolean;
 }
 
 async function verifyFirebaseIdToken(token: string): Promise<FirebaseTokenClaims> {
@@ -140,7 +141,8 @@ async function verifyFirebaseIdToken(token: string): Promise<FirebaseTokenClaims
     !Number.isFinite(claims.iat) ||
     claims.iat > now + 60 ||
     !Number.isFinite(claims.auth_time) ||
-    claims.auth_time > now + 60
+    claims.auth_time > now + 60 ||
+    claims.email_verified !== true
   ) {
     throw new Error('Firebase authentication token is expired or invalid for this project.');
   }
@@ -148,7 +150,7 @@ async function verifyFirebaseIdToken(token: string): Promise<FirebaseTokenClaims
   return claims;
 }
 
-async function isActiveBusinessMember(
+async function canUseBusinessForecast(
   businessId: string,
   uid: string,
   token: string
@@ -170,9 +172,15 @@ async function isActiveBusinessMember(
   }
 
   const employee = (await response.json()) as {
-    fields?: { status?: { stringValue?: string } };
+    fields?: {
+      status?: { stringValue?: string };
+      role?: { stringValue?: string };
+    };
   };
-  return employee.fields?.status?.stringValue === 'active';
+  return (
+    employee.fields?.status?.stringValue === 'active' &&
+    ['owner', 'admin', 'manager'].includes(employee.fields?.role?.stringValue ?? '')
+  );
 }
 
 function getAiClient(): GoogleGenAI {
@@ -265,21 +273,29 @@ async function startServer() {
       let tokenClaims: FirebaseTokenClaims;
       try {
         tokenClaims = await verifyFirebaseIdToken(tokenMatch[1]);
-      } catch {
-        res.status(401).json({ error: 'Your session is invalid or expired. Please sign in again.' });
+      } catch (error) {
+        const status = (error as { statusCode?: number }).statusCode ?? 401;
+        res.status(status).json({
+          error:
+            status === 503
+              ? 'Authentication verification is temporarily unavailable. Please try again.'
+              : 'Your session is invalid, expired, or unverified. Please sign in again.',
+        });
         return;
       }
 
       let isMember = false;
       try {
-        isMember = await isActiveBusinessMember(businessId, tokenClaims.sub, tokenMatch[1]);
+        isMember = await canUseBusinessForecast(businessId, tokenClaims.sub, tokenMatch[1]);
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode ?? 503;
         res.status(status).json({ error: 'Unable to verify your business access right now.' });
         return;
       }
       if (!isMember) {
-        res.status(403).json({ error: 'You are not an active member of this business workspace.' });
+        res.status(403).json({
+          error: 'AI forecasting is available to active owners, administrators, and managers only.',
+        });
         return;
       }
 
