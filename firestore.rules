@@ -347,7 +347,10 @@ service cloud.firestore {
           && incoming().businessId == existing().businessId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'status', 'updatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'role', 'status', 'updatedAt'])
+          // An administrator cannot promote or reactivate their own account.
+          && (employeeId != request.auth.uid
+            || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'updatedAt']));
         allow delete: if isValidId(businessId) && isValidId(employeeId) && isVerified()
           && isBusinessOwnerOrAdmin(businessId)
           && employeeId != request.auth.uid;
