@@ -21,3 +21,12 @@
 10. **PII Blanket Scraping**: Authenticated user B attempts `list` or `get` on `/users` or `/users/user-A`. -> `PERMISSION_DENIED`.
 11. **Owner Hijack on Update**: Admin attempts to change `ownerUid` on `/businesses/biz-1`. -> `PERMISSION_DENIED`.
 12. **Unbounded Array Exhaustion**: Client attempts to create a Sale with 500 items or non-map items. -> `PERMISSION_DENIED`.
+
+
+## 3. AI Forecast API Access
+1. The `POST /api/ai/stock-forecast` endpoint requires a Firebase ID token in the Authorization bearer header.
+2. The server verifies the RS256 signature against Google's published Firebase Secure Token certificates and validates issuer, audience, subject, issue time, and expiry against the configured Firebase project.
+3. The server checks the authenticated user's own employee document through Firestore REST and requires `status == active` for the requested business before calling Gemini.
+4. Requests are size-limited, capped at 40 SKU metrics, normalized to bounded values, and throttled per client IP in-process.
+5. The in-process throttle is not a distributed quota. Production deployments must also configure edge/API gateway quotas, monitoring, and Gemini spend limits.
+6. Never accept a business role, UID, or tenant identity from the request body as proof of authorization; derive identity from the verified token and membership document.
