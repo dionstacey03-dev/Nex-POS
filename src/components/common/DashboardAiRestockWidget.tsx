@@ -82,6 +82,7 @@ const URGENCY_META: Record<
 
 export const DashboardAiRestockWidget: React.FC = () => {
   const {
+    mode,
     activeBusiness,
     products,
     categories,
@@ -139,6 +140,10 @@ export const DashboardAiRestockWidget: React.FC = () => {
   const runForecast = useCallback(
     async (explicitLeadTime?: number) => {
       if (!activeBusiness || activeProductsCount === 0) return;
+      if (mode !== 'firebase') {
+        setErrorMsg('Sign in to a Firebase business workspace to generate AI restock forecasts.');
+        return;
+      }
 
       abortRef.current?.abort();
       const controller = new AbortController();
@@ -177,6 +182,7 @@ export const DashboardAiRestockWidget: React.FC = () => {
       }
     },
     [
+      mode,
       activeBusiness,
       activeProductsCount,
       products,

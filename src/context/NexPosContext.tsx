@@ -1167,7 +1167,7 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!activeBusiness) throw new Error('No active business selected.');
       const now = new Date().toISOString();
       const saleId = generateId('sale');
-      const receiptNumber = `NX-${new Date().getFullYear()}-${String(1010 + sales.length).padStart(4, '0')}`;
+      const receiptNumber = `NX-${new Date().getFullYear()}-${saleId.slice(-6).toUpperCase()}`;
 
       const saleRecord: Sale = {
         id: saleId,
@@ -1195,13 +1195,23 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       };
 
       if (mode === 'firebase') {
-        await executeSaleTransactionInFirestore(activeBusiness.id, saleRecord);
-        return saleRecord;
+        // The trusted API recalculates prices, tax, discounts and stock from
+        // current Firestore records. Use its persisted sale for the receipt.
+        return await executeSaleTransactionInFirestore(activeBusiness.id, saleRecord);
       }
 
       // Demo mode atomic validation & update
       updateDemoActive((ds) => {
-        const inventoriedItems = params.items.filter((item) => !item.isCustom);
+        const soldByProduct = new Map<string, SaleItem>();
+        for (const item of params.items) {
+          if (item.isCustom) continue;
+          const existing = soldByProduct.get(item.productId);
+          soldByProduct.set(
+            item.productId,
+            existing ? { ...existing, quantity: existing.quantity + item.quantity } : { ...item }
+          );
+        }
+        const inventoriedItems = [...soldByProduct.values()];
         for (const item of inventoriedItems) {
           const prod = ds.products.find((p) => p.id === item.productId);
           if (!prod) throw new Error(`Product ${item.name} not found.`);
@@ -1214,7 +1224,7 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         const newMovements: StockMovement[] = [];
         const updatedProducts = ds.products.map((p) => {
-          const sold = inventoriedItems.find((i) => i.productId === p.id);
+          const sold = soldByProduct.get(p.id);
           if (!sold) return p;
           const nextStock = p.stockQuantity - sold.quantity;
           newMovements.push({
@@ -1268,15 +1278,68 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     async (saleId: string) => {
       if (!activeBusiness) return;
       if (mode === 'firebase') {
-        await refundSaleInFirestore(activeBusiness.id, saleId);
+        await refundSaleInFirestore(activeBusiness.id, saleId, currentUserId, currentUserName);
         return;
       }
-      updateDemoActive((ds) => ({
-        ...ds,
-        sales: ds.sales.map((s) => (s.id === saleId ? { ...s, status: 'refunded' } : s)),
-      }));
+
+      const now = new Date().toISOString();
+      updateDemoActive((ds) => {
+        const sale = ds.sales.find((item) => item.id === saleId);
+        if (!sale || sale.status !== 'completed') return ds;
+
+        const refundedItems = sale.items.filter((item) => !item.isCustom);
+        const movements: StockMovement[] = [];
+        const updatedProducts = ds.products.map((product) => {
+          const returnedQty = refundedItems
+            .filter((item) => item.productId === product.id)
+            .reduce((sum, item) => sum + item.quantity, 0);
+          if (returnedQty === 0) return product;
+
+          const nextStock = product.stockQuantity + returnedQty;
+          movements.push({
+            id: generateId('mov'),
+            businessId: ds.business.id,
+            productId: product.id,
+            productName: product.name,
+            locationId: product.locationId,
+            type: 'in',
+            quantityDelta: returnedQty,
+            previousStock: product.stockQuantity,
+            newStock: nextStock,
+            reason: `Refund ${sale.receiptNumber}`,
+            referenceId: sale.id,
+            actorUid: currentUserId,
+            actorName: currentUserName,
+            createdAt: now,
+          });
+          return { ...product, stockQuantity: nextStock, updatedAt: now };
+        });
+
+        const updatedCustomers = sale.customerId
+          ? ds.customers.map((customer) =>
+              customer.id === sale.customerId
+                ? {
+                    ...customer,
+                    totalSpent: roundMoney(Math.max(0, customer.totalSpent - sale.grandTotal)),
+                    ordersCount: Math.max(0, customer.ordersCount - 1),
+                    updatedAt: now,
+                  }
+                : customer
+            )
+          : ds.customers;
+
+        return {
+          ...ds,
+          products: updatedProducts,
+          customers: updatedCustomers,
+          stockMovements: [...movements, ...ds.stockMovements],
+          sales: ds.sales.map((item) =>
+            item.id === saleId ? { ...item, status: 'refunded' } : item
+          ),
+        };
+      });
     },
-    [activeBusiness, mode, updateDemoActive]
+    [activeBusiness, mode, updateDemoActive, currentUserId, currentUserName]
   );
 
   const createPurchaseOrder = useCallback(
@@ -1293,7 +1356,7 @@ export const NexPosProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const po: PurchaseOrder = {
         id,
         businessId: activeBusiness.id,
-        purchaseNumber: `PO-${new Date().getFullYear()}-${String(43 + purchases.length).padStart(3, '0')}`,
+        purchaseNumber: `PO-${new Date().getFullYear()}-${id.slice(-6).toUpperCase()}`,
         supplierId: params.supplierId,
         supplierName: params.supplierName,
         locationId: params.locationId ?? locations.find((l) => l.isDefault)?.id,
