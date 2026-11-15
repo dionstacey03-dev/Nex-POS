@@ -4,6 +4,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
+import { createVerify } from 'node:crypto';
+import firebaseConfig from './firebase-applet-config.json';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +38,7 @@ interface SkuForecastInput {
 }
 
 interface ForecastRequestBody {
+  businessId?: string;
   businessName?: string;
   businessType?: string;
   currency?: string;
@@ -61,6 +64,115 @@ interface RawAiForecastPayload {
   portfolioSummary: string;
   demandHighlights: string[];
   suggestions: RawAiSuggestion[];
+}
+
+let firebaseCertCache: { certs: Record<string, string>; expiresAt: number } | null = null;
+
+async function getFirebaseSigningCertificates(): Promise<Record<string, string>> {
+  if (firebaseCertCache && firebaseCertCache.expiresAt > Date.now()) {
+    return firebaseCertCache.certs;
+  }
+
+  const response = await fetch(
+    'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'
+  );
+  if (!response.ok) {
+    throw Object.assign(new Error('Unable to retrieve Firebase signing certificates.'), {
+      statusCode: 503,
+    });
+  }
+
+  const certs = (await response.json()) as Record<string, string>;
+  const maxAge = response.headers.get('cache-control')?.match(/max-age=(\\d+)/i);
+  const ttlMs = maxAge ? Number(maxAge[1]) * 1000 : 60 * 60 * 1000;
+  firebaseCertCache = { certs, expiresAt: Date.now() + Math.max(60_000, ttlMs) };
+  return certs;
+}
+
+interface FirebaseTokenClaims {
+  aud: string;
+  iss: string;
+  sub: string;
+  exp: number;
+  iat: number;
+  auth_time: number;
+}
+
+async function verifyFirebaseIdToken(token: string): Promise<FirebaseTokenClaims> {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !firebaseConfig?.projectId) {
+    throw new Error('Invalid Firebase authentication token.');
+  }
+
+  let header: { alg?: string; kid?: string };
+  let claims: FirebaseTokenClaims;
+  try {
+    header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('Invalid Firebase authentication token.');
+  }
+
+  if (header.alg !== 'RS256' || !header.kid) {
+    throw new Error('Unsupported Firebase authentication token.');
+  }
+
+  const certs = await getFirebaseSigningCertificates();
+  const certificate = certs[header.kid];
+  if (!certificate) throw new Error('Unknown Firebase signing key.');
+
+  const verifier = createVerify('RSA-SHA256');
+  verifier.update(`${parts[0]}.${parts[1]}`);
+  verifier.end();
+  if (!verifier.verify(certificate, Buffer.from(parts[2], 'base64url'))) {
+    throw new Error('Invalid Firebase authentication signature.');
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    claims.aud !== firebaseConfig.projectId ||
+    claims.iss !== `https://securetoken.google.com/${firebaseConfig.projectId}` ||
+    typeof claims.sub !== 'string' ||
+    claims.sub.length === 0 ||
+    claims.sub.length > 128 ||
+    !Number.isFinite(claims.exp) ||
+    claims.exp <= now ||
+    !Number.isFinite(claims.iat) ||
+    claims.iat > now + 60 ||
+    !Number.isFinite(claims.auth_time) ||
+    claims.auth_time > now + 60
+  ) {
+    throw new Error('Firebase authentication token is expired or invalid for this project.');
+  }
+
+  return claims;
+}
+
+async function isActiveBusinessMember(
+  businessId: string,
+  uid: string,
+  token: string
+): Promise<boolean> {
+  const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+  const documentUrl =
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(firebaseConfig.projectId)}` +
+    `/databases/${encodeURIComponent(databaseId)}/documents/businesses/${encodeURIComponent(businessId)}` +
+    `/employees/${encodeURIComponent(uid)}`;
+
+  const response = await fetch(documentUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404 || response.status === 403) return false;
+  if (!response.ok) {
+    throw Object.assign(new Error('Unable to verify business membership with Firestore.'), {
+      statusCode: 503,
+    });
+  }
+
+  const employee = (await response.json()) as {
+    fields?: { status?: { stringValue?: string } };
+  };
+  return employee.fields?.status?.stringValue === 'active';
 }
 
 function getAiClient(): GoogleGenAI {
@@ -139,6 +251,38 @@ async function startServer() {
 
     try {
       const body = (req.body ?? {}) as ForecastRequestBody;
+      const businessId =
+        typeof body.businessId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(body.businessId)
+          ? body.businessId
+          : '';
+      const authorization = req.get('authorization') ?? '';
+      const tokenMatch = authorization.match(/^Bearer\\s+(.+)$/i);
+      if (!businessId || !tokenMatch) {
+        res.status(401).json({ error: 'Sign in to a business workspace to use AI forecasting.' });
+        return;
+      }
+
+      let tokenClaims: FirebaseTokenClaims;
+      try {
+        tokenClaims = await verifyFirebaseIdToken(tokenMatch[1]);
+      } catch {
+        res.status(401).json({ error: 'Your session is invalid or expired. Please sign in again.' });
+        return;
+      }
+
+      let isMember = false;
+      try {
+        isMember = await isActiveBusinessMember(businessId, tokenClaims.sub, tokenMatch[1]);
+      } catch (error) {
+        const status = (error as { statusCode?: number }).statusCode ?? 503;
+        res.status(status).json({ error: 'Unable to verify your business access right now.' });
+        return;
+      }
+      if (!isMember) {
+        res.status(403).json({ error: 'You are not an active member of this business workspace.' });
+        return;
+      }
+
       const rawMetrics = Array.isArray(body.skuMetrics) ? body.skuMetrics : [];
       if (rawMetrics.length > 40) {
         res.status(400).json({ error: 'A maximum of 40 products can be forecast at once.' });
