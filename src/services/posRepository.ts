@@ -818,7 +818,16 @@ export async function executeSaleTransactionInFirestore(
   const salePath = `businesses/${businessId}/sales/${sale.id}`;
   try {
     await runTransaction(db, async (tx) => {
-      const inventoriedItems = sale.items.filter((item) => !item.isCustom);
+      const requiredByProduct = new Map<string, Sale['items'][number]>();
+      for (const item of sale.items) {
+        if (item.isCustom) continue;
+        const existing = requiredByProduct.get(item.productId);
+        requiredByProduct.set(
+          item.productId,
+          existing ? { ...existing, quantity: existing.quantity + item.quantity } : { ...item }
+        );
+      }
+      const inventoriedItems = [...requiredByProduct.values()];
 
       const productSnapshots = await Promise.all(
         inventoriedItems.map((item) =>
@@ -1139,7 +1148,16 @@ export async function refundSaleInFirestore(
       if (sale.status === 'refunded') return;
       if (sale.status !== 'completed') throw new Error('Only completed sales can be refunded.');
 
-      const items = sale.items.filter((item) => !item.isCustom);
+      const returnedByProduct = new Map<string, Sale['items'][number]>();
+      for (const item of sale.items) {
+        if (item.isCustom) continue;
+        const existing = returnedByProduct.get(item.productId);
+        returnedByProduct.set(
+          item.productId,
+          existing ? { ...existing, quantity: existing.quantity + item.quantity } : { ...item }
+        );
+      }
+      const items = [...returnedByProduct.values()];
       const productRefs = items.map((item) =>
         doc(db!, 'businesses', businessId, 'products', item.productId)
       );
