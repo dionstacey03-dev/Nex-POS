@@ -345,6 +345,40 @@ async function secureRefund(req: Request, res: Response): Promise<void> {
   }catch(e){const err=e as any;res.status(err.statusCode||503).json({error:err.message||'Refund failed.'});}
 }
 
+
+async function secureReceivePurchase(req: Request, res: Response): Promise<void> {
+  const biz=req.params.businessId, purchaseId=req.params.purchaseId;
+  if(!validDocId(biz)||!validDocId(purchaseId)){res.status(400).json({error:'Invalid purchase order.'});return;}
+  const actor=await authorizeBusiness(req,res,biz,['owner','admin','manager']);if(!actor)return;
+  try {
+    const po=await serverRead('businesses/'+biz+'/purchases/'+purchaseId);
+    if(!po){res.status(404).json({error:'Purchase order not found.'});return;}
+    if(po.data.status==='received'){res.json({received:true,alreadyReceived:true});return;}
+    if(po.data.status!=='ordered'){res.status(409).json({error:'Only ordered purchase orders can be received.'});return;}
+    const grouped=new Map<string,number>();
+    for(const item of po.data.items||[]){
+      if(!validDocId(item.productId)||!Number.isInteger(item.quantity)||item.quantity<1){res.status(409).json({error:'Purchase order contains invalid product quantities.'});return;}
+      grouped.set(item.productId,(grouped.get(item.productId)||0)+item.quantity);
+    }
+    const writes:FSWrite[]=[];
+    for(const [pid,qty] of grouped){
+      const product=await serverRead('businesses/'+biz+'/products/'+pid);
+      if(!product){res.status(409).json({error:'A purchase order product no longer exists.'});return;}
+      const previous=Number(product.data.stockQuantity||0),next=previous+qty,now=new Date().toISOString(),mid=makeId('mov');
+      writes.push(fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},product.updateTime));
+      writes.push(fsCreate('businesses/'+biz+'/stockMovements/'+mid,{
+        id:mid,businessId:biz,productId:pid,productName:String(product.data.name).slice(0,140),
+        locationId:po.data.locationId||product.data.locationId||null,type:'purchase',
+        quantityDelta:qty,previousStock:previous,newStock:next,
+        reason:'Received Purchase '+String(po.data.purchaseNumber),referenceId:purchaseId,
+        actorUid:actor.uid,actorName:actor.name,createdAt:now
+      }));
+    }
+    writes.push(fsUpdate('businesses/'+biz+'/purchases/'+purchaseId,{status:'received',updatedAt:new Date().toISOString()},po.updateTime));
+    await serverCommit(writes);res.json({received:true});
+  } catch(e) { const err=e as any;res.status(err.statusCode||503).json({error:err.message||'Purchase receiving failed.'}); }
+}
+
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT) || 3000;
@@ -355,6 +389,7 @@ async function startServer() {
   app.post('/api/businesses/:businessId/checkout', (req,res) => { void secureCheckout(req,res); });
   app.post('/api/businesses/:businessId/products/:productId/stock-adjustments', (req,res) => { void secureStockAdjust(req,res); });
   app.post('/api/businesses/:businessId/sales/:saleId/refund', (req,res) => { void secureRefund(req,res); });
+  app.post('/api/businesses/:businessId/purchases/:purchaseId/receive', (req,res) => { void secureReceivePurchase(req,res); });
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
