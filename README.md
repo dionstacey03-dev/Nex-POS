@@ -53,7 +53,7 @@ NexPOS is a universal point-of-sale and business-management application built fo
    FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
    ```
 
-   `FIREBASE_SERVICE_ACCOUNT_JSON` must contain the complete one-line service-account JSON for the same Firebase project. Create a dedicated service account for the same Firebase project, grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Firestore User role), store the value only in `.env` or the hosting provider's secret manager, and never expose it through a `VITE_` variable. Never commit `.env`, service-account files, private keys, or other credentials.
+   `FIREBASE_SERVICE_ACCOUNT_JSON` must contain the complete one-line service-account JSON for the same Firebase project. Create a dedicated service account for the same Firebase project, grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Cloud Datastore User role), create a JSON key, and store the complete JSON only in `.env` or the hosting provider's server-side secret manager. In Google AI Studio, add it as a server secret named `FIREBASE_SERVICE_ACCOUNT_JSON` if that runtime supports server secrets. Never expose it through a `VITE_` variable. Never commit `.env`, service-account files, private keys, or other credentials.
 
 4. Start the application:
 
@@ -70,7 +70,15 @@ The browser Firebase app configuration is read from `firebase-applet-config.json
 1. Create a Firebase project and register a web app.
 2. Enable Google as an Authentication provider and configure the authorized domains.
 3. Create the Firestore database using the database ID configured for the app.
-4. Review and deploy `firestore.rules` to that exact database.
+4. Review the configured database ID in `firebase.json`, then deploy the rules to that database:
+
+   ```bash
+   npm install -g firebase-tools
+   firebase login
+   firebase deploy --only firestore:rules --project alien-truck-flvvl
+   ```
+
+   The `firebase.json` file targets the configured NexPOS Firestore database, not the default database.
 5. Configure Firebase API-key restrictions and authentication settings for your deployed domains.
 6. Create the first business workspace using an authenticated, verified account.
 
