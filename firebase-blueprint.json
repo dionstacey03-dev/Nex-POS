@@ -1,0 +1,284 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user account preferences and active business pointer.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "photoUrl": { "type": "string", "maxLength": 500 },
+        "activeBusinessId": { "type": "string", "maxLength": 128 },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "theme", "createdAt", "updatedAt"]
+    },
+    "UserMembership": {
+      "title": "UserMembership",
+      "description": "Lookup index of businesses a user belongs to.",
+      "type": "object",
+      "properties": {
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["owner", "admin", "manager", "cashier"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["businessId", "businessName", "role", "joinedAt"]
+    },
+    "Business": {
+      "title": "Business",
+      "description": "Tenant business organization profile and POS configuration.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "businessType": { "type": "string", "enum": ["retail", "cafe", "pharmacy", "apparel", "electronics", "general"] },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "address": { "type": "string", "maxLength": 300 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 160 },
+        "currency": { "type": "string", "minLength": 3, "maxLength": 10 },
+        "taxRate": { "type": "number" },
+        "receiptHeader": { "type": "string", "maxLength": 300 },
+        "receiptFooter": { "type": "string", "maxLength": 300 },
+        "lowStockAlertEnabled": { "type": "boolean" },
+        "lowStockAlertEmail": { "type": "string", "maxLength": 160 },
+        "lowStockAlertTime": { "type": "string", "maxLength": 10 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "businessType", "ownerUid", "currency", "taxRate", "createdAt", "updatedAt"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Staff member assigned to a business with RBAC role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 160 },
+        "role": { "type": "string", "enum": ["owner", "admin", "manager", "cashier"] },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "businessId", "name", "email", "role", "status", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Product category for POS filtering and catalog organization.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 240 },
+        "color": { "type": "string", "maxLength": 30 },
+        "active": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "name", "active", "createdAt", "updatedAt"]
+    },
+    "InventoryLocation": {
+      "title": "InventoryLocation",
+      "description": "Warehouse or retail counter inventory location.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 240 },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "name", "isDefault", "createdAt", "updatedAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Sellable catalog SKU with cost, selling price, and stock levels.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "description": { "type": "string", "maxLength": 500 },
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sku": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "barcode": { "type": "string", "maxLength": 64 },
+        "purchasePrice": { "type": "number" },
+        "sellingPrice": { "type": "number" },
+        "stockQuantity": { "type": "number" },
+        "minStockLevel": { "type": "number" },
+        "locationId": { "type": "string", "maxLength": 128 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "name", "categoryId", "sku", "purchasePrice", "sellingPrice", "stockQuantity", "minStockLevel", "active", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer record and lifetime spend summary.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 160 },
+        "address": { "type": "string", "maxLength": 300 },
+        "totalSpent": { "type": "number" },
+        "ordersCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "name", "totalSpent", "ordersCount", "createdAt", "updatedAt"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Vendor/supplier contact record for purchasing.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "companyName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "contactPerson": { "type": "string", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 160 },
+        "address": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "companyName", "createdAt", "updatedAt"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Completed POS sale transaction and receipt record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "receiptNumber": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "cashierUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "cashierName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "locationId": { "type": "string", "maxLength": 128 },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "grandTotal": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "card", "other"] },
+        "amountTendered": { "type": "number" },
+        "changeDue": { "type": "number" },
+        "paymentReference": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["completed", "refunded"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "receiptNumber", "cashierUid", "cashierName", "items", "subtotal", "discountAmount", "taxRate", "taxAmount", "grandTotal", "paymentMethod", "amountTendered", "changeDue", "status", "createdAt"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Auditable inventory stock-in, stock-out, adjustment, and sale ledger entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "productName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "locationId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["in", "out", "adjustment", "sale", "purchase"] },
+        "quantityDelta": { "type": "number" },
+        "previousStock": { "type": "number" },
+        "newStock": { "type": "number" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "referenceId": { "type": "string", "maxLength": 128 },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "productId", "productName", "type", "quantityDelta", "previousStock", "newStock", "reason", "actorUid", "actorName", "createdAt"]
+    },
+    "PurchaseOrder": {
+      "title": "PurchaseOrder",
+      "description": "Supplier purchase order for restocking inventory.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "purchaseNumber": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "supplierId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "supplierName": { "type": "string", "minLength": 1, "maxLength": 140 },
+        "locationId": { "type": "string", "maxLength": 128 },
+        "items": { "type": "array" },
+        "totalCost": { "type": "number" },
+        "status": { "type": "string", "enum": ["ordered", "received", "cancelled"] },
+        "createdByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "businessId", "purchaseNumber", "supplierId", "supplierName", "items", "totalCost", "status", "createdByUid", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated user profile and theme preferences."
+    },
+    "/users/{userId}/memberships/{businessId}": {
+      "schema": { "$ref": "#/entities/UserMembership" },
+      "description": "User's business membership index for fast workspace switching."
+    },
+    "/businesses/{businessId}": {
+      "schema": { "$ref": "#/entities/Business" },
+      "description": "Business tenant profile, currency, tax, and receipt configuration."
+    },
+    "/businesses/{businessId}/employees/{employeeId}": {
+      "schema": { "$ref": "#/entities/Employee" },
+      "description": "Staff RBAC directory for the business."
+    },
+    "/businesses/{businessId}/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Product categories scoped to the business."
+    },
+    "/businesses/{businessId}/locations/{locationId}": {
+      "schema": { "$ref": "#/entities/InventoryLocation" },
+      "description": "Inventory locations (stores/warehouses) scoped to the business."
+    },
+    "/businesses/{businessId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Product catalog and current inventory quantities."
+    },
+    "/businesses/{businessId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Customer directory and spend totals."
+    },
+    "/businesses/{businessId}/suppliers/{supplierId}": {
+      "schema": { "$ref": "#/entities/Supplier" },
+      "description": "Supplier directory for purchasing."
+    },
+    "/businesses/{businessId}/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Immutable POS sales ledger and receipt records."
+    },
+    "/businesses/{businessId}/stockMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/StockMovement" },
+      "description": "Immutable stock movement audit log."
+    },
+    "/businesses/{businessId}/purchases/{purchaseId}": {
+      "schema": { "$ref": "#/entities/PurchaseOrder" },
+      "description": "Supplier purchase orders."
+    }
+  }
+}

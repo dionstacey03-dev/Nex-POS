@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .font-mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+}
+
+@keyframes nexposHoldFill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #nexpos-printable-receipt,
+  #nexpos-printable-receipt *,
+  #nexpos-printable-labels,
+  #nexpos-printable-labels * {
+    visibility: visible;
+  }
+  #nexpos-printable-receipt {
+    position: fixed;
+    inset: 0;
+    margin: 0 auto;
+    padding: 16px;
+    width: 80mm;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  #nexpos-printable-labels {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .nexpos-print-hidden {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  .nexpos-sticker-page {
+    break-after: page;
+    page-break-after: always;
+  }
+  .nexpos-sticker-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .nexpos-sticker-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 auto !important;
+  }
+  .nexpos-barcode-label {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
