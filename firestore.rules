@@ -301,7 +301,9 @@ service cloud.firestore {
           && isValidUserMembership(incoming(), businessId)
           && incoming().businessId == existing().businessId
           && incoming().joinedAt == existing().joinedAt
-          && incoming().diff(existing()).affectedKeys().hasOnly(['businessName', 'role']);
+          // Membership roles are server/owner-managed; users cannot self-promote.
+          && incoming().role == existing().role
+          && incoming().diff(existing()).affectedKeys().hasOnly(['businessName']);
         allow delete: if isValidId(userId) && isValidId(businessId) && isVerified() && isOwner(userId);
       }
     }
