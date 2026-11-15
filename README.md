@@ -96,8 +96,9 @@ AI output is advisory. Verify purchase quantities and supplier lead times before
 - [ ] Replace the Firebase web app configuration with the intended project configuration.
 - [ ] Deploy and test Firestore rules with the Firebase Emulator Suite and adversarial test cases.
 - [ ] Configure verified authentication and authorized domains.
-- [ ] Add server-side authentication/authorization to protected API endpoints before exposing them to untrusted traffic.
-- [ ] Add request quotas, monitoring, and cost limits for Gemini usage.
+- [x] AI stock-forecast endpoint verifies Firebase ID tokens and checks active membership in the requested business workspace.
+- [ ] Add a distributed edge/API-gateway quota, monitoring, and cost limits for Gemini usage; the in-process limiter is only a secondary safeguard.
+- [ ] Configure `TRUST_PROXY=1` only when the app is deployed behind one trusted reverse proxy.
 - [ ] Configure HTTPS, environment secrets, backups, and production monitoring.
 - [ ] Test concurrent checkouts, refunds, stock adjustments, and purchase-order receiving.
 - [ ] Confirm that payment methods labelled card/other are only recorded as payment methods; no card processing occurs without a payment gateway integration.
