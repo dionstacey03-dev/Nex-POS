@@ -404,18 +404,17 @@ service cloud.firestore {
           && isValidProduct(incoming(), businessId, productId)
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time;
+        // Stock is a ledger-controlled field. Browser clients may edit product
+        // metadata but cannot change quantities; trusted server operations do that.
         allow update: if isValidId(businessId) && isValidId(productId) && isVerified()
           && isValidProduct(incoming(), businessId, productId)
           && incoming().id == existing().id
           && incoming().businessId == existing().businessId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && (
-            (isBusinessManagerOrAbove(businessId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'categoryId', 'sku', 'barcode', 'purchasePrice', 'sellingPrice', 'stockQuantity', 'minStockLevel', 'locationId', 'imageUrl', 'active', 'updatedAt'])) ||
-            (isBusinessMember(businessId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['stockQuantity', 'updatedAt']))
-          );
+          && incoming().stockQuantity == existing().stockQuantity
+          && isBusinessManagerOrAbove(businessId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'categoryId', 'sku', 'barcode', 'purchasePrice', 'sellingPrice', 'minStockLevel', 'locationId', 'imageUrl', 'active', 'updatedAt']);
         allow delete: if isValidId(businessId) && isValidId(productId) && isVerified()
           && isBusinessOwnerOrAdmin(businessId);
       }
@@ -429,18 +428,19 @@ service cloud.firestore {
           && isValidCustomer(incoming(), businessId, customerId)
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time;
+        // Customer financial aggregates are maintained only by trusted
+        // transaction services, never by a browser-supplied amount.
         allow update: if isValidId(businessId) && isValidId(customerId) && isVerified()
           && isValidCustomer(incoming(), businessId, customerId)
           && incoming().id == existing().id
           && incoming().businessId == existing().businessId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && (
-            (isBusinessManagerOrAbove(businessId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'address', 'totalSpent', 'ordersCount', 'lastPurchaseAt', 'updatedAt'])) ||
-            (isBusinessMember(businessId)
-              && incoming().diff(existing()).affectedKeys().hasOnly(['totalSpent', 'ordersCount', 'lastPurchaseAt', 'updatedAt']))
-          );
+          && incoming().totalSpent == existing().totalSpent
+          && incoming().ordersCount == existing().ordersCount
+          && incoming().lastPurchaseAt == existing().lastPurchaseAt
+          && isBusinessManagerOrAbove(businessId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'address', 'updatedAt']);
         allow delete: if isValidId(businessId) && isValidId(customerId) && isVerified()
           && isBusinessOwnerOrAdmin(businessId);
       }
@@ -466,39 +466,20 @@ service cloud.firestore {
           && isBusinessOwnerOrAdmin(businessId);
       }
 
-      // Sales (Immutable ledger except manager refund status)
+      // Sales are a financial ledger. Browser clients may read but never
+      // create, alter, refund, or delete sales. Trusted server transactions only.
       match /sales/{saleId} {
         allow get: if isValidId(businessId) && isValidId(saleId) && isBusinessMember(businessId);
         allow list: if isSignedIn() && resource.data.businessId == businessId && isBusinessMember(businessId);
-        allow create: if isValidId(businessId) && isValidId(saleId) && isVerified()
-          && isBusinessMember(businessId)
-          && isValidSale(incoming(), businessId, saleId)
-          && incoming().cashierUid == request.auth.uid
-          && incoming().status == 'completed'
-          && incoming().createdAt == request.time;
-        allow update: if isValidId(businessId) && isValidId(saleId) && isVerified()
-          && isBusinessManagerOrAbove(businessId)
-          && isValidSale(incoming(), businessId, saleId)
-          && existing().status == 'completed'
-          && incoming().status == 'refunded'
-          && incoming().id == existing().id
-          && incoming().businessId == existing().businessId
-          && incoming().cashierUid == existing().cashierUid
-          && incoming().createdAt == existing().createdAt
-          && incoming().diff(existing()).affectedKeys().hasOnly(['status']);
-        allow delete: if false;
+        allow create, update, delete: if false;
       }
 
-      // Stock Movements (Append-only audit log)
+      // Stock movements are an append-only audit ledger written by trusted
+      // server transactions only. No browser client may forge or rewrite it.
       match /stockMovements/{movementId} {
         allow get: if isValidId(businessId) && isValidId(movementId) && isBusinessMember(businessId);
         allow list: if isSignedIn() && resource.data.businessId == businessId && isBusinessMember(businessId);
-        allow create: if isValidId(businessId) && isValidId(movementId) && isVerified()
-          && isBusinessMember(businessId)
-          && isValidStockMovement(incoming(), businessId, movementId)
-          && incoming().createdAt == request.time;
-        allow update: if false;
-        allow delete: if false;
+        allow create, update, delete: if false;
       }
 
       // Purchase Orders
