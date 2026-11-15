@@ -866,7 +866,7 @@ export async function adjustStockInFirestore(
 ) {
   await callTrustedPosApi(
     '/api/businesses/' + encodeURIComponent(businessId) + '/products/' + encodeURIComponent(params.productId) + '/stock-adjustments',
-    { type: params.type, quantityChange: params.quantityChange, reason: params.reason, locationId: params.locationId }
+    { requestId: generateId('adj'), type: params.type, quantityChange: params.quantityChange, reason: params.reason, locationId: params.locationId }
   );
 }
 
