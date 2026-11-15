@@ -279,6 +279,16 @@ async function secureCheckout(req: Request, res: Response): Promise<void> {
   const actor = await authorizeBusiness(req,res,biz,['owner','admin','manager','cashier']); if (!actor) return;
   try {
     const business = await serverRead('businesses/' + biz); if (!business) { res.status(404).json({ error: 'Business not found.' }); return; }
+    // Stable client-generated request IDs make checkout safe to retry after
+    // network timeouts without creating a second sale.
+    const requestId = validDocId(body.requestId) ? body.requestId : '';
+    if (!requestId) { res.status(400).json({ error: 'A valid checkout request ID is required.' }); return; }
+    const priorSale = await serverRead('businesses/' + biz + '/sales/' + requestId);
+    if (priorSale) {
+      if (priorSale.data.cashierUid !== actor.uid) { res.status(409).json({ error: 'Checkout request ID is already in use.' }); return; }
+      res.json({ sale: priorSale.data, alreadyCompleted: true });
+      return;
+    }
     const quantities = new Map<string,number>(), custom: any[] = [];
     for (const item of body.items) {
       if (!item || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 100000) { res.status(400).json({ error: 'Invalid item quantity.' }); return; }
@@ -312,8 +322,10 @@ async function secureCheckout(req: Request, res: Response): Promise<void> {
     if (!Number.isFinite(amountTendered) || amountTendered < 0 || (body.paymentMethod === 'cash' && amountTendered < grandTotal)) { res.status(400).json({ error:'Insufficient payment amount.' }); return; }
     let customer: any = null; const customerId = body.customerId ? String(body.customerId) : '';
     if (customerId) { if (!validDocId(customerId)) { res.status(400).json({error:'Invalid customer.'}); return; } customer = await serverRead('businesses/'+biz+'/customers/'+customerId); if (!customer) {res.status(404).json({error:'Customer not found.'});return;} }
-    const id=makeId('sale'), now=new Date().toISOString(), receipt='NX-'+new Date().getFullYear()+'-'+id.slice(-6).toUpperCase();
+    const id=requestId, now=new Date().toISOString(), receipt='NX-'+new Date().getFullYear()+'-'+id.slice(-6).toUpperCase();
     const sale:any={id,businessId:biz,receiptNumber:receipt,cashierUid:actor.uid,cashierName:actor.name,items:saleItems,subtotal,discountType,discountValue,discountAmount,taxRate,taxAmount,grandTotal,paymentMethod:body.paymentMethod,amountTendered:round2(amountTendered),changeDue:body.paymentMethod==='cash'?round2(Math.max(0,amountTendered-grandTotal)):0,status:'completed',createdAt:now};
+    if (validDocId(body.locationId)) sale.locationId = body.locationId;
+    if (typeof body.paymentReference === 'string' && body.paymentReference.trim()) sale.paymentReference = body.paymentReference.trim().slice(0,100);
     if(customer){sale.customerId=customerId;sale.customerName=String(customer.data.name).slice(0,120);}
     const writes:FSWrite[]=[fsCreate('businesses/'+biz+'/sales/'+id,sale)];
     for(const p of plans){writes.push(fsUpdate('businesses/'+biz+'/products/'+p.pid,{stockQuantity:p.next,updatedAt:now},p.p.updateTime));const mid=makeId('mov');writes.push(fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:p.pid,productName:String(p.p.data.name).slice(0,140),type:'sale',quantityDelta:-p.qty,previousStock:Number(p.p.data.stockQuantity),newStock:p.next,reason:'POS Sale '+receipt,referenceId:id,actorUid:actor.uid,actorName:actor.name,createdAt:now}));}
