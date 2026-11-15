@@ -8,6 +8,13 @@ import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Lightweight per-instance abuse protection for the metered AI endpoint.
+// For multi-instance production deployments, also configure an edge/API
+// gateway quota because this in-memory limiter is intentionally not distributed.
+const forecastRateLimits = new Map<string, { count: number; resetAt: number }>();
+const FORECAST_RATE_WINDOW_MS = 60_000;
+const FORECAST_RATE_LIMIT = 12;
+
 interface SkuForecastInput {
   productId: string;
   name: string;
@@ -98,8 +105,9 @@ function extractHttpStatus(err: unknown): { status: number; message: string } {
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT) || 3000;
+  if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '256kb' }));
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
@@ -109,9 +117,69 @@ async function startServer() {
   });
 
   app.post('/api/ai/stock-forecast', async (req: Request, res: Response) => {
+    const now = Date.now();
+    const rateKey = req.ip || req.socket.remoteAddress || 'unknown';
+    const rateState = forecastRateLimits.get(rateKey);
+    if (!rateState || rateState.resetAt <= now) {
+      forecastRateLimits.set(rateKey, { count: 1, resetAt: now + FORECAST_RATE_WINDOW_MS });
+    } else if (rateState.count >= FORECAST_RATE_LIMIT) {
+      res.setHeader('Retry-After', String(Math.ceil((rateState.resetAt - now) / 1000)));
+      res.status(429).json({ error: 'Too many AI forecast requests. Please try again shortly.' });
+      return;
+    } else {
+      rateState.count += 1;
+    }
+
+    // Bound the limiter's memory use on long-lived server instances.
+    if (forecastRateLimits.size > 10_000) {
+      for (const [key, value] of forecastRateLimits) {
+        if (value.resetAt <= now) forecastRateLimits.delete(key);
+      }
+    }
+
     try {
       const body = (req.body ?? {}) as ForecastRequestBody;
-      const skuMetrics = Array.isArray(body.skuMetrics) ? body.skuMetrics.slice(0, 40) : [];
+      const rawMetrics = Array.isArray(body.skuMetrics) ? body.skuMetrics : [];
+      if (rawMetrics.length > 40) {
+        res.status(400).json({ error: 'A maximum of 40 products can be forecast at once.' });
+        return;
+      }
+      if (rawMetrics.some((item) => !item || typeof item !== 'object')) {
+        res.status(400).json({ error: 'The product metrics payload is invalid.' });
+        return;
+      }
+      if (rawMetrics.some((item) => typeof item.productId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(item.productId))) {
+        res.status(400).json({ error: 'Each product must include a valid product ID.' });
+        return;
+      }
+      const skuMetrics: SkuForecastInput[] = rawMetrics.map((item) => ({
+        productId: item.productId,
+        name: String(item.name ?? 'Unnamed product').slice(0, 140),
+        sku: String(item.sku ?? '').slice(0, 64),
+        categoryName: String(item.categoryName ?? 'General').slice(0, 80),
+        currentStock: sanitizeNumber(item.currentStock, 0, 0, 10_000_000),
+        minStockLevel: sanitizeNumber(item.minStockLevel, 0, 0, 10_000_000),
+        incomingPoQty: sanitizeNumber(item.incomingPoQty, 0, 0, 10_000_000),
+        purchasePrice: sanitizeNumber(item.purchasePrice, 0, 0, 1_000_000_000),
+        sellingPrice: sanitizeNumber(item.sellingPrice, 0, 0, 1_000_000_000),
+        unitsSold7d: sanitizeNumber(item.unitsSold7d, 0, 0, 10_000_000),
+        unitsSold14d: sanitizeNumber(item.unitsSold14d, 0, 0, 10_000_000),
+        unitsSold30d: sanitizeNumber(item.unitsSold30d, 0, 0, 10_000_000),
+        dailyVelocity7d: sanitizeNumber(item.dailyVelocity7d, 0, 0, 10_000_000),
+        dailyVelocity14d: sanitizeNumber(item.dailyVelocity14d, 0, 0, 10_000_000),
+        dailyVelocity30d: sanitizeNumber(item.dailyVelocity30d, 0, 0, 10_000_000),
+        trendDirection:
+          item.trendDirection === 'accelerating' ||
+          item.trendDirection === 'steady' ||
+          item.trendDirection === 'slowing' ||
+          item.trendDirection === 'idle'
+            ? item.trendDirection
+            : 'steady',
+        baselineDaysRemaining:
+          item.baselineDaysRemaining === null
+            ? null
+            : sanitizeNumber(item.baselineDaysRemaining, 0, 0, 3650),
+      }));
 
       if (skuMetrics.length === 0) {
         res.status(400).json({
@@ -133,7 +201,7 @@ async function startServer() {
       const promptContext = {
         businessName: body.businessName || 'NexPOS Store',
         businessType: body.businessType || 'retail',
-        currency: body.currency || 'USD',
+        currency: typeof body.currency === 'string' ? body.currency.slice(0, 10) : 'LKR',
         todayDate: todayIso,
         planningParameters: {
           supplierLeadTimeDays: leadTimeDays,
