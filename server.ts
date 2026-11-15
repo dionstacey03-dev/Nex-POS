@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
-import { createVerify } from 'node:crypto';
+import { createSign, createVerify } from 'node:crypto';
 import firebaseConfig from './firebase-applet-config.json';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -83,7 +83,7 @@ async function getFirebaseSigningCertificates(): Promise<Record<string, string>>
   }
 
   const certs = (await response.json()) as Record<string, string>;
-  const maxAge = response.headers.get('cache-control')?.match(/max-age=(\\d+)/i);
+  const maxAge = response.headers.get('cache-control')?.match(/max-age=(\d+)/i);
   const ttlMs = maxAge ? Number(maxAge[1]) * 1000 : 60 * 60 * 1000;
   firebaseCertCache = { certs, expiresAt: Date.now() + Math.max(60_000, ttlMs) };
   return certs;
@@ -222,12 +222,139 @@ function extractHttpStatus(err: unknown): { status: number; message: string } {
   return { status: 500, message: rawMessage };
 }
 
+
+type SA = { client_email: string; private_key: string; token_uri?: string };
+let saCache: { token: string; expires: number } | null = null;
+const fsRoot = () => 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(firebaseConfig.projectId) + '/databases/' + encodeURIComponent(firebaseConfig.firestoreDatabaseId || '(default)') + '/documents';
+const fsEncode = (v: any): any => v === null || v === undefined ? { nullValue: null } : typeof v === 'string' ? { stringValue: v } : typeof v === 'boolean' ? { booleanValue: v } : typeof v === 'number' ? Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v } : Array.isArray(v) ? { arrayValue: { values: v.map(fsEncode) } } : { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k,x]) => [k,fsEncode(x)])) } };
+const fsDecode = (v: any): any => !v ? null : 'stringValue' in v ? v.stringValue : 'integerValue' in v ? Number(v.integerValue) : 'doubleValue' in v ? Number(v.doubleValue) : 'booleanValue' in v ? v.booleanValue : 'timestampValue' in v ? v.timestampValue : 'arrayValue' in v ? (v.arrayValue.values || []).map(fsDecode) : 'mapValue' in v ? Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k,x]) => [k,fsDecode(x)])) : null;
+async function serverFirebaseToken(): Promise<string> {
+  if (saCache && saCache.expires > Date.now() + 60000) return saCache.token;
+  let sa: SA;
+  try { sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''); if (!sa.client_email || !sa.private_key) throw new Error(); }
+  catch { throw Object.assign(new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not configured.'), { statusCode: 503 }); }
+  const now = Math.floor(Date.now() / 1000), aud = sa.token_uri || 'https://oauth2.googleapis.com/token';
+  const b64 = (x: string) => Buffer.from(x).toString('base64url');
+  const unsigned = b64(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' + b64(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore', aud, iat: now, exp: now + 3600 }));
+  const signer = createSign('RSA-SHA256'); signer.update(unsigned); signer.end();
+  const assertion = unsigned + '.' + signer.sign(sa.private_key).toString('base64url');
+  const response = await fetch(aud, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
+  if (!response.ok) throw Object.assign(new Error('Firebase server authentication failed.'), { statusCode: 503 });
+  const token = await response.json() as any;
+  saCache = { token: token.access_token, expires: Date.now() + (token.expires_in || 3600) * 1000 };
+  return token.access_token;
+}
+async function serverRead(path: string): Promise<any> {
+  const r = await fetch(fsRoot() + '/' + path, { headers: { Authorization: 'Bearer ' + await serverFirebaseToken() } });
+  if (r.status === 404) return null;
+  if (!r.ok) throw Object.assign(new Error('Unable to read Firestore transaction records.'), { statusCode: 503 });
+  const d = await r.json() as any;
+  return { data: Object.fromEntries(Object.entries(d.fields || {}).map(([k,v]) => [k,fsDecode(v)])), updateTime: d.updateTime };
+}
+type FSWrite = { update: { name: string; fields: Record<string,any> }; updateMask?: { fieldPaths: string[] }; currentDocument?: any };
+const fsName = (p: string) => fsRoot() + '/' + p;
+const fsCreate = (p: string, d: any): FSWrite => ({ update: { name: fsName(p), fields: Object.fromEntries(Object.entries(d).map(([k,v]) => [k,fsEncode(v)])) }, currentDocument: { exists: false } });
+const fsUpdate = (p: string, d: any, t: string): FSWrite => ({ update: { name: fsName(p), fields: Object.fromEntries(Object.entries(d).map(([k,v]) => [k,fsEncode(v)])) }, updateMask: { fieldPaths: Object.keys(d) }, currentDocument: { updateTime: t } });
+async function serverCommit(writes: FSWrite[]): Promise<void> {
+  const r = await fetch(fsRoot() + ':commit', { method: 'POST', headers: { Authorization: 'Bearer ' + await serverFirebaseToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ writes }) });
+  if (!r.ok) { const detail = await r.text(); console.error('Firestore commit failed:', r.status, detail.slice(0,300)); throw Object.assign(new Error('Transaction conflict or database error. Refresh and try again.'), { statusCode: r.status === 409 || r.status === 400 ? 409 : 503 }); }
+}
+const validDocId = (x: any): x is string => typeof x === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(x);
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const makeId = (p: string) => p + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8);
+async function authorizeBusiness(req: Request, res: Response, biz: string, roles: string[]): Promise<any | null> {
+  const match = (req.get('authorization') || '').match(/^Bearer\s+(.+)$/i);
+  if (!match) { res.status(401).json({ error: 'Sign in to continue.' }); return null; }
+  let claims: FirebaseTokenClaims;
+  try { claims = await verifyFirebaseIdToken(match[1]); } catch { res.status(401).json({ error: 'Your session is invalid. Sign in again.' }); return null; }
+  try {
+    const employee = await serverRead('businesses/' + biz + '/employees/' + claims.sub);
+    if (!employee || employee.data.status !== 'active' || !roles.includes(employee.data.role)) { res.status(403).json({ error: 'You do not have permission to perform this operation.' }); return null; }
+    return { uid: claims.sub, name: String(employee.data.name || 'NexPOS User').slice(0,120), role: employee.data.role };
+  } catch { res.status(503).json({ error: 'Business permissions could not be verified.' }); return null; }
+}
+async function secureCheckout(req: Request, res: Response): Promise<void> {
+  const biz = req.params.businessId, body = req.body || {};
+  if (!validDocId(biz) || !Array.isArray(body.items) || body.items.length < 1 || body.items.length > 50 || !['cash','card','other'].includes(body.paymentMethod)) { res.status(400).json({ error: 'Invalid checkout request.' }); return; }
+  const actor = await authorizeBusiness(req,res,biz,['owner','admin','manager','cashier']); if (!actor) return;
+  try {
+    const business = await serverRead('businesses/' + biz); if (!business) { res.status(404).json({ error: 'Business not found.' }); return; }
+    const quantities = new Map<string,number>(), custom: any[] = [];
+    for (const item of body.items) {
+      if (!item || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 100000) { res.status(400).json({ error: 'Invalid item quantity.' }); return; }
+      if (item.isCustom === true) {
+        if (!['owner','admin','manager'].includes(actor.role)) { res.status(403).json({ error: 'Custom-priced items require manager permission.' }); return; }
+        const price = Number(item.unitPrice), title = String(item.name || '').trim().slice(0,140);
+        if (!title || !Number.isFinite(price) || price < 0) { res.status(400).json({ error: 'Invalid custom item.' }); return; }
+        custom.push({ title, quantity: item.quantity, price: round2(price) });
+      } else {
+        if (!validDocId(item.productId)) { res.status(400).json({ error: 'Invalid product.' }); return; }
+        quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
+      }
+    }
+    const plans: any[] = [], saleItems: any[] = []; let subtotal = 0;
+    for (const [pid, qty] of quantities) {
+      const p = await serverRead('businesses/' + biz + '/products/' + pid);
+      if (!p || p.data.active !== true) { res.status(409).json({ error: 'A selected product is unavailable.' }); return; }
+      const stock = Number(p.data.stockQuantity || 0);
+      if (stock < qty) { res.status(409).json({ error: 'Insufficient stock for ' + p.data.name + '. Available: ' + stock }); return; }
+      const unit = round2(Number(p.data.sellingPrice)), line = round2(unit * qty); subtotal += line;
+      saleItems.push({ productId: pid, name: String(p.data.name).slice(0,140), sku: String(p.data.sku || '').slice(0,64), quantity: qty, unitPrice: unit, costPrice: round2(Number(p.data.purchasePrice || 0)), lineTotal: line });
+      plans.push({ pid, p, qty, next: stock - qty });
+    }
+    for (const c of custom) { const line = round2(c.price*c.quantity); subtotal += line; saleItems.push({ productId: makeId('custom'), name:c.title, sku:'CUSTOM', quantity:c.quantity, unitPrice:c.price, costPrice:0, lineTotal:line, isCustom:true }); }
+    subtotal = round2(subtotal);
+    const discountType = body.discountType === 'percent' ? 'percent' : 'fixed', discountValue = Number(body.discountValue || 0);
+    if (!Number.isFinite(discountValue) || discountValue < 0 || discountValue > (discountType === 'percent' ? 100 : subtotal)) { res.status(400).json({ error:'Invalid discount.' }); return; }
+    const discountAmount = round2(discountType === 'percent' ? subtotal*discountValue/100 : discountValue), taxable = round2(subtotal-discountAmount);
+    const taxRate = Math.max(0,Math.min(100,Number(business.data.taxRate || 0))), taxAmount = round2(taxable*taxRate/100), grandTotal = round2(taxable+taxAmount);
+    const amountTendered = Number(body.amountTendered ?? grandTotal);
+    if (!Number.isFinite(amountTendered) || amountTendered < 0 || (body.paymentMethod === 'cash' && amountTendered < grandTotal)) { res.status(400).json({ error:'Insufficient payment amount.' }); return; }
+    let customer: any = null; const customerId = body.customerId ? String(body.customerId) : '';
+    if (customerId) { if (!validDocId(customerId)) { res.status(400).json({error:'Invalid customer.'}); return; } customer = await serverRead('businesses/'+biz+'/customers/'+customerId); if (!customer) {res.status(404).json({error:'Customer not found.'});return;} }
+    const id=makeId('sale'), now=new Date().toISOString(), receipt='NX-'+new Date().getFullYear()+'-'+id.slice(-6).toUpperCase();
+    const sale:any={id,businessId:biz,receiptNumber:receipt,cashierUid:actor.uid,cashierName:actor.name,items:saleItems,subtotal,discountType,discountValue,discountAmount,taxRate,taxAmount,grandTotal,paymentMethod:body.paymentMethod,amountTendered:round2(amountTendered),changeDue:body.paymentMethod==='cash'?round2(Math.max(0,amountTendered-grandTotal)):0,status:'completed',createdAt:now};
+    if(customer){sale.customerId=customerId;sale.customerName=String(customer.data.name).slice(0,120);}
+    const writes:FSWrite[]=[fsCreate('businesses/'+biz+'/sales/'+id,sale)];
+    for(const p of plans){writes.push(fsUpdate('businesses/'+biz+'/products/'+p.pid,{stockQuantity:p.next,updatedAt:now},p.p.updateTime));const mid=makeId('mov');writes.push(fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:p.pid,productName:String(p.p.data.name).slice(0,140),type:'sale',quantityDelta:-p.qty,previousStock:Number(p.p.data.stockQuantity),newStock:p.next,reason:'POS Sale '+receipt,referenceId:id,actorUid:actor.uid,actorName:actor.name,createdAt:now}));}
+    if(customer) writes.push(fsUpdate('businesses/'+biz+'/customers/'+customerId,{totalSpent:round2(Number(customer.data.totalSpent||0)+grandTotal),ordersCount:Number(customer.data.ordersCount||0)+1,lastPurchaseAt:now,updatedAt:now},customer.updateTime));
+    await serverCommit(writes); res.status(201).json({sale});
+  } catch(e) { const err=e as any; res.status(err.statusCode||503).json({error:err.message||'Checkout failed.'}); }
+}
+async function secureStockAdjust(req: Request, res: Response): Promise<void> {
+  const biz=req.params.businessId,pid=req.params.productId,body=req.body||{};
+  if(!validDocId(biz)||!validDocId(pid)){res.status(400).json({error:'Invalid product.'});return;}
+  const actor=await authorizeBusiness(req,res,biz,['owner','admin','manager']);if(!actor)return;
+  if(!['in','out','adjustment'].includes(body.type)||!Number.isInteger(body.quantityChange)||body.quantityChange<0||typeof body.reason!=='string'||!body.reason.trim()){res.status(400).json({error:'Invalid stock adjustment.'});return;}
+  try{const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(404).json({error:'Product not found.'});return;}
+    const prev=Number(p.data.stockQuantity||0),delta=body.type==='in'?body.quantityChange:body.type==='out'?-body.quantityChange:body.quantityChange-prev,next=prev+delta;
+    if(next<0){res.status(409).json({error:'Insufficient stock.'});return;}const now=new Date().toISOString(),mid=makeId('mov');
+    await serverCommit([fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},p.updateTime),fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:pid,productName:String(p.data.name).slice(0,140),type:body.type,quantityDelta:delta,previousStock:prev,newStock:next,reason:String(body.reason).trim().slice(0,240),actorUid:actor.uid,actorName:actor.name,createdAt:now})]);
+    res.json({stockQuantity:next});
+  }catch(e){const err=e as any;res.status(err.statusCode||503).json({error:err.message||'Stock adjustment failed.'});}
+}
+async function secureRefund(req: Request, res: Response): Promise<void> {
+  const biz=req.params.businessId,sid=req.params.saleId;if(!validDocId(biz)||!validDocId(sid)){res.status(400).json({error:'Invalid sale.'});return;}
+  const actor=await authorizeBusiness(req,res,biz,['owner','admin','manager']);if(!actor)return;
+  try{const sale=await serverRead('businesses/'+biz+'/sales/'+sid);if(!sale){res.status(404).json({error:'Sale not found.'});return;}if(sale.data.status==='refunded'){res.json({refunded:true,alreadyRefunded:true});return;}if(sale.data.status!=='completed'){res.status(409).json({error:'Sale is not refundable.'});return;}
+    const grouped=new Map<string,number>();for(const i of sale.data.items||[])if(!i.isCustom)grouped.set(i.productId,(grouped.get(i.productId)||0)+Number(i.quantity));
+    const writes:FSWrite[]=[];for(const [pid,qty] of grouped){const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(409).json({error:'A sale product no longer exists.'});return;}const prev=Number(p.data.stockQuantity||0),next=prev+qty,now=new Date().toISOString(),mid=makeId('mov');
+      writes.push(fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},p.updateTime),fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:pid,productName:String(p.data.name).slice(0,140),type:'in',quantityDelta:qty,previousStock:prev,newStock:next,reason:'Refund '+sale.data.receiptNumber,referenceId:sid,actorUid:actor.uid,actorName:actor.name,createdAt:now}));}
+    if(sale.data.customerId){const c=await serverRead('businesses/'+biz+'/customers/'+sale.data.customerId);if(c)writes.push(fsUpdate('businesses/'+biz+'/customers/'+sale.data.customerId,{totalSpent:round2(Math.max(0,Number(c.data.totalSpent||0)-Number(sale.data.grandTotal||0))),ordersCount:Math.max(0,Number(c.data.ordersCount||0)-1),updatedAt:new Date().toISOString()},c.updateTime));}
+    writes.push(fsUpdate('businesses/'+biz+'/sales/'+sid,{status:'refunded'},sale.updateTime));await serverCommit(writes);res.json({refunded:true});
+  }catch(e){const err=e as any;res.status(err.statusCode||503).json({error:err.message||'Refund failed.'});}
+}
+
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT) || 3000;
   if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 
   app.use(express.json({ limit: '256kb' }));
+
+  app.post('/api/businesses/:businessId/checkout', (req,res) => { void secureCheckout(req,res); });
+  app.post('/api/businesses/:businessId/products/:productId/stock-adjustments', (req,res) => { void secureStockAdjust(req,res); });
+  app.post('/api/businesses/:businessId/sales/:saleId/refund', (req,res) => { void secureRefund(req,res); });
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
@@ -264,7 +391,7 @@ async function startServer() {
           ? body.businessId
           : '';
       const authorization = req.get('authorization') ?? '';
-      const tokenMatch = authorization.match(/^Bearer\\s+(.+)$/i);
+      const tokenMatch = authorization.match(/^Bearer\s+(.+)$/i);
       if (!businessId || !tokenMatch) {
         res.status(401).json({ error: 'Sign in to a business workspace to use AI forecasting.' });
         return;
