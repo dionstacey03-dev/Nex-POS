@@ -436,9 +436,7 @@ service cloud.firestore {
           && incoming().businessId == existing().businessId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && incoming().totalSpent == existing().totalSpent
-          && incoming().ordersCount == existing().ordersCount
-          && incoming().lastPurchaseAt == existing().lastPurchaseAt
+          && !incoming().diff(existing()).affectedKeys().hasAny(['totalSpent', 'ordersCount', 'lastPurchaseAt'])
           && isBusinessManagerOrAbove(businessId)
           && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'email', 'address', 'updatedAt']);
         allow delete: if isValidId(businessId) && isValidId(customerId) && isVerified()
