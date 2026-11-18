@@ -116,6 +116,7 @@ CREATE TABLE sales (
   business_id uuid NOT NULL REFERENCES businesses(id) ON DELETE RESTRICT,
   receipt_number varchar(64) NOT NULL,
   request_id varchar(128) NOT NULL,
+  request_fingerprint char(64) NOT NULL,
   cashier_user_id text NOT NULL,
   customer_id uuid,
   location_id uuid,
