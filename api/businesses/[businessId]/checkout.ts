@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { getPool } from '../../../db';
@@ -8,7 +9,7 @@ const payloadSchema = z.object({
   requestId: z.string().trim().min(12).max(128).regex(/^[a-zA-Z0-9_-]+$/),
   items: z.array(z.object({
     productId: z.string().uuid(),
-    quantity: z.number().finite().positive().max(99999),
+    quantity: z.number().finite().positive().max(99999).refine((value) => Math.round(value * 1000) > 0),
   }).strict()).min(1).max(100),
   customerId: z.string().uuid().optional(),
   locationId: z.string().uuid().optional(),
@@ -38,6 +39,7 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager', 'cashier']);
   if (!actor) return;
 
+  const requestFingerprint = createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -45,10 +47,14 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
     await client.query("SELECT set_config('app.business_id', $1, true)", [businessId]);
 
     const prior = await client.query(
-      'SELECT id, receipt_number, grand_total, currency, status, created_at FROM sales WHERE business_id = $1::uuid AND request_id = $2',
+      'SELECT id, receipt_number, grand_total, currency, status, created_at, request_fingerprint FROM sales WHERE business_id = $1::uuid AND request_id = $2',
       [businessId, parsed.data.requestId],
     );
     if (prior.rowCount) {
+      if (prior.rows[0].request_fingerprint !== requestFingerprint) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'The checkout request ID was already used for a different transaction.' });
+      }
       await client.query('COMMIT');
       return res.status(200).json({ sale: prior.rows[0], alreadyProcessed: true });
     }
@@ -63,6 +69,21 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
       'SELECT id, name, sku, selling_price::text, purchase_price::text, stock_quantity::text, location_id FROM products WHERE business_id = $1::uuid AND id = ANY($2::uuid[]) AND active = true ORDER BY id FOR UPDATE',
       [businessId, productIds],
     );
+    // Recheck after row locks: concurrent retries wait for the first checkout,
+    // then return its result instead of decrementing inventory twice.
+    const concurrentPrior = await client.query(
+      'SELECT id, receipt_number, grand_total, currency, status, created_at, request_fingerprint FROM sales WHERE business_id = $1::uuid AND request_id = $2',
+      [businessId, parsed.data.requestId],
+    );
+    if (concurrentPrior.rowCount) {
+      if (concurrentPrior.rows[0].request_fingerprint !== requestFingerprint) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'The checkout request ID was already used for a different transaction.' });
+      }
+      await client.query('COMMIT');
+      return res.status(200).json({ sale: concurrentPrior.rows[0], alreadyProcessed: true });
+    }
+
     if (productResult.rows.length !== productIds.length) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'One or more products are unavailable.' });
@@ -113,10 +134,10 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
     const saleId = crypto.randomUUID();
     const receiptNumber = 'NX-' + new Date().toISOString().slice(0, 10).replaceAll('-', '') + '-' + saleId.slice(0, 8).toUpperCase();
     const saleResult = await client.query(
-      `INSERT INTO sales (id,business_id,receipt_number,request_id,cashier_user_id,customer_id,location_id,subtotal,discount_amount,tax_rate,tax_amount,grand_total,currency,payment_method,amount_tendered,change_due,payment_reference,status)
-       VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6::uuid,$7::uuid,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'completed')
+      `INSERT INTO sales (id,business_id,receipt_number,request_id,request_fingerprint,cashier_user_id,customer_id,location_id,subtotal,discount_amount,tax_rate,tax_amount,grand_total,currency,payment_method,amount_tendered,change_due,payment_reference,status)
+       VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7::uuid,$8::uuid,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'completed')
        RETURNING id,receipt_number,grand_total,currency,status,created_at`,
-      [saleId,businessId,receiptNumber,parsed.data.requestId,actor.userId,parsed.data.customerId ?? null,parsed.data.locationId ?? null,
+      [saleId,businessId,receiptNumber,parsed.data.requestId,requestFingerprint,actor.userId,parsed.data.customerId ?? null,parsed.data.locationId ?? null,
        formatMinorUnits(subtotalMinor),'0.00',business.tax_rate,formatMinorUnits(taxMinor),formatMinorUnits(totalMinor),business.currency,
        parsed.data.paymentMethod,formatMinorUnits(tenderedMinor),formatMinorUnits(Math.max(0,tenderedMinor-totalMinor)),parsed.data.paymentReference ?? null],
     );
