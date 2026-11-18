@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
@@ -46,5 +46,8 @@
     "@vercel/node": "^5.5.14",
     "drizzle-kit": "^0.31.5",
     "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
