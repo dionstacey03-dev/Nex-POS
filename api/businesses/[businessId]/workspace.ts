@@ -103,7 +103,7 @@ export default async function workspace(req: VercelRequest, res: VercelResponse)
           s.status,s.created_at AS "createdAt",
           COALESCE(json_agg(json_build_object('productId',si.product_id,'name',si.product_name,'sku',si.sku,
             'quantity',si.quantity,'unitPrice',si.unit_price,
-            'costPrice',${access.canViewFinancialCost ? 'si.unit_cost' : 'NULL'}),
+            'costPrice',${access.canViewFinancialCost ? 'si.unit_cost' : 'NULL'},
             'lineTotal',si.line_total,'isCustom',si.is_custom)) FILTER (WHERE si.id IS NOT NULL),'[]'::json) AS items
          FROM sales s LEFT JOIN sale_items si ON si.business_id=s.business_id AND si.sale_id=s.id
          LEFT JOIN "user" u ON u.id=s.cashier_user_id
