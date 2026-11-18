@@ -42,7 +42,7 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   }
 
   const businessId = String(req.query.businessId ?? '');
-  if (!/^[0-9a-f-]{36}$/i.test(businessId)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId)) {
     return res.status(400).json({ error: 'Invalid business identifier.' });
   }
   const parsed = payloadSchema.safeParse(req.body);
