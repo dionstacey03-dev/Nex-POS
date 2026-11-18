@@ -99,9 +99,9 @@ export default async function refundSale(req: VercelRequest, res: VercelResponse
         [next,businessId,product.id],
       );
       await client.query(
-        `INSERT INTO inventory_movements (business_id,product_id,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id)
-         VALUES ($1::uuid,$2::uuid,$3::uuid,'return',$4,$5,$6,'refund',$7::uuid,$8,$9)`,
-        [businessId,product.id,product.location_id,quantity,previous,next,saleId,'Refund ' + saleId,actor.userId],
+        `INSERT INTO inventory_movements (business_id,product_id,product_name,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id,actor_name)
+         VALUES ($1::uuid,$2::uuid,$3,$4::uuid,'return',$5,$6,$7,'refund',$8::uuid,$9,$10,$11)`,
+        [businessId,product.id,product.name,product.location_id,quantity,previous,next,saleId,'Refund ' + saleId,actor.userId,actor.name],
       );
     }
 
