@@ -83,9 +83,9 @@ export default async function adjustStock(req: VercelRequest, res: VercelRespons
       [next,businessId,productId],
     );
     await client.query(
-      `INSERT INTO inventory_movements (business_id,product_id,location_id,movement_type,quantity_delta,previous_stock,new_stock,request_id,reason,actor_user_id)
-       VALUES ($1::uuid,$2::uuid,$3::uuid,'adjustment',$4,$5,$6,$7,$8,$9)`,
-      [businessId,productId,product.location_id,delta,previous,next,parsed.data.requestId,parsed.data.reason,actor.userId],
+      `INSERT INTO inventory_movements (business_id,product_id,product_name,location_id,movement_type,quantity_delta,previous_stock,new_stock,request_id,reason,actor_user_id,actor_name)
+       VALUES ($1::uuid,$2::uuid,$3,$4::uuid,'adjustment',$5,$6,$7,$8,$9,$10,$11)`,
+      [businessId,productId,product.name,product.location_id,delta,previous,next,parsed.data.requestId,parsed.data.reason,actor.userId,actor.name],
     );
     await client.query(
       'INSERT INTO audit_logs (business_id,actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1::uuid,$2,$3,$4,$5,$6::jsonb)',
