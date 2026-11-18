@@ -7,7 +7,7 @@ export type BusinessRole = 'owner' | 'admin' | 'manager' | 'cashier';
 export function requestHeaders(input: VercelRequest['headers']): Headers {
   const headers = new Headers();
   for (const [key, value] of Object.entries(input)) {
-    if (Array.isArray(value)) headers.set(key, value.join(', '));
+    if (Array.isArray(value)) headers.set(key, key.toLowerCase() === 'cookie' ? value.join('; ') : value.join(', '));
     else if (typeof value === 'string') headers.set(key, value);
   }
   return headers;
