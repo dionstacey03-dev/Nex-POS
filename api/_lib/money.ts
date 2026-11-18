@@ -1,5 +1,5 @@
 export function parseMoneyToMinorUnits(value: string | number): number {
-  const raw = String(value).trim();
+  const raw = (typeof value === 'number' ? value.toFixed(2) : value).trim();
   if (!/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(raw)) {
     throw new Error('Invalid monetary amount.');
   }
