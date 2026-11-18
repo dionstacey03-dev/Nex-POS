@@ -13,6 +13,8 @@ const payloadSchema = z.object({
   }).strict()).min(1).max(100),
   customerId: z.string().uuid().optional(),
   locationId: z.string().uuid().optional(),
+  discountType: z.enum(['fixed', 'percent']).optional().default('fixed'),
+  discountValue: z.number().finite().nonnegative().max(100000000).optional().default(0),
   paymentMethod: z.enum(['cash', 'card', 'other']),
   amountTendered: z.number().finite().nonnegative().optional().default(0),
   paymentReference: z.string().trim().max(100).optional(),
@@ -39,6 +41,8 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager', 'cashier']);
   if (!actor) return;
 
+  if (actor.role === 'cashier' && parsed.data.discountValue > 0) return res.status(403).json({ error: 'Cashiers cannot apply discounts.' });
+  if (parsed.data.discountType === 'percent' && parsed.data.discountValue > 100) return res.status(400).json({ error: 'Percentage discount cannot exceed 100%.' });
   const requestFingerprint = createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
   const pool = getPool();
   const client = await pool.connect();
@@ -109,8 +113,13 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
       subtotalMinor += lineTotalMinor;
       return { product, quantity, unitPriceMinor, unitCostMinor, lineTotalMinor };
     });
-    const taxMinor = calculateTaxMinorUnits(subtotalMinor, business.tax_rate);
-    const totalMinor = subtotalMinor + taxMinor;
+    const discountMinor = parsed.data.discountType === 'percent'
+      ? Math.round(subtotalMinor * parsed.data.discountValue / 100)
+      : parseMoneyToMinorUnits(parsed.data.discountValue);
+    if (discountMinor > subtotalMinor) throw new Error('DISCOUNT_EXCEEDS_SUBTOTAL');
+    const taxableMinor = subtotalMinor - discountMinor;
+    const taxMinor = calculateTaxMinorUnits(taxableMinor, business.tax_rate);
+    const totalMinor = taxableMinor + taxMinor;
     const tenderedMinor = parseMoneyToMinorUnits(parsed.data.amountTendered);
     if (parsed.data.paymentMethod === 'cash' && tenderedMinor < totalMinor) {
       await client.query('ROLLBACK');
@@ -134,11 +143,11 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
     const saleId = crypto.randomUUID();
     const receiptNumber = 'NX-' + new Date().toISOString().slice(0, 10).replaceAll('-', '') + '-' + saleId.slice(0, 8).toUpperCase();
     const saleResult = await client.query(
-      `INSERT INTO sales (id,business_id,receipt_number,request_id,request_fingerprint,cashier_user_id,customer_id,location_id,subtotal,discount_amount,tax_rate,tax_amount,grand_total,currency,payment_method,amount_tendered,change_due,payment_reference,status)
-       VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7::uuid,$8::uuid,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'completed')
+      `INSERT INTO sales (id,business_id,receipt_number,request_id,request_fingerprint,cashier_user_id,customer_id,location_id,subtotal,discount_amount,discount_type,discount_value,tax_rate,tax_amount,grand_total,currency,payment_method,amount_tendered,change_due,payment_reference,status)
+       VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7::uuid,$8::uuid,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'completed')
        RETURNING id,receipt_number,grand_total,currency,status,created_at`,
       [saleId,businessId,receiptNumber,parsed.data.requestId,requestFingerprint,actor.userId,parsed.data.customerId ?? null,parsed.data.locationId ?? null,
-       formatMinorUnits(subtotalMinor),'0.00',business.tax_rate,formatMinorUnits(taxMinor),formatMinorUnits(totalMinor),business.currency,
+       formatMinorUnits(subtotalMinor),formatMinorUnits(discountMinor),parsed.data.discountType,parsed.data.discountValue,business.tax_rate,formatMinorUnits(taxMinor),formatMinorUnits(totalMinor),business.currency,
        parsed.data.paymentMethod,formatMinorUnits(tenderedMinor),formatMinorUnits(Math.max(0,tenderedMinor-totalMinor)),parsed.data.paymentReference ?? null],
     );
 
@@ -154,9 +163,9 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
         [newStock,businessId,line.product.id],
       );
       await client.query(
-        `INSERT INTO inventory_movements (business_id,product_id,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id)
-         VALUES ($1::uuid,$2::uuid,$3::uuid,'sale',$4,$5,$6,'sale',$7::uuid,$8,$9)`,
-        [businessId,line.product.id,line.product.location_id,line.quantity * -1,line.product.stock_quantity,newStock,saleId,'POS sale ' + receiptNumber,actor.userId],
+        `INSERT INTO inventory_movements (business_id,product_id,product_name,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id,actor_name)
+         VALUES ($1::uuid,$2::uuid,$3,$4::uuid,'sale',$5,$6,$7,'sale',$8::uuid,$9,$10,$11)`,
+        [businessId,line.product.id,line.product.name,line.product.location_id,line.quantity * -1,line.product.stock_quantity,newStock,saleId,'POS sale ' + receiptNumber,actor.userId,actor.name],
       );
     }
 
@@ -169,6 +178,7 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);
     const message = error instanceof Error ? error.message : '';
+    if (message === 'DISCOUNT_EXCEEDS_SUBTOTAL') return res.status(400).json({ error: 'Discount cannot exceed the sale subtotal.' });
     if (message.startsWith('INSUFFICIENT_STOCK:')) return res.status(409).json({ error: 'Insufficient stock for ' + message.slice('INSUFFICIENT_STOCK:'.length) + '.' });
     if ((error as { code?: string }).code === '23505') return res.status(409).json({ error: 'This checkout request has already been processed.' });
     return res.status(500).json({ error: 'Checkout could not be completed. No changes were saved.' });
