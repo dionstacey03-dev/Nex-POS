@@ -12,6 +12,11 @@ if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PRODUCTION_MIGRAT
   throw new Error('Production migrations are disabled. Set ALLOW_PRODUCTION_MIGRATIONS=true only after explicit deployment approval.');
 }
 
+const appRole = process.env.APP_DB_ROLE;
+if (!appRole || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(appRole)) {
+  throw new Error('APP_DB_ROLE must name the dedicated runtime PostgreSQL role.');
+}
+
 const pool = new Pool({ connectionString, max: 1 });
 const here = path.dirname(fileURLToPath(import.meta.url));
 const directory = path.resolve(here, '../db/migrations');
@@ -40,6 +45,25 @@ try {
       client.release();
     }
   }
+  const roleCheck = await pool.query<{ rolsuper: boolean; rolbypassrls: boolean; owns_tables: boolean }>(
+    `SELECT r.rolsuper,r.rolbypassrls,
+      EXISTS (
+        SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind IN ('r','p') AND c.relowner=r.oid
+      ) AS owns_tables
+     FROM pg_roles r WHERE r.rolname=$1`,
+    [appRole],
+  );
+  const role = roleCheck.rows[0];
+  if (!role || role.rolsuper || role.rolbypassrls || role.owns_tables) {
+    throw new Error('APP_DB_ROLE must exist and must not be superuser, BYPASSRLS, or owner of application tables.');
+  }
+  const quotedRole = '"' + appRole + '"';
+  await pool.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ${quotedRole}`);
+  await pool.query(`GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ${quotedRole}`);
+  await pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO ${quotedRole}`);
+  await pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE,SELECT ON SEQUENCES TO ${quotedRole}`);
+  process.stdout.write('Verified runtime role ' + appRole + ' and granted application table privileges.\\n');
 } finally {
   await pool.end();
 }
