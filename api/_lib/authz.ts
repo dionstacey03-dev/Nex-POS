@@ -18,7 +18,7 @@ export async function requireBusinessRole(
   res: VercelResponse,
   businessId: string,
   allowedRoles: BusinessRole[],
-): Promise<{ userId: string; role: BusinessRole } | null> {
+): Promise<{ userId: string; name: string; role: BusinessRole } | null> {
   const session = await auth.api.getSession({ headers: requestHeaders(req.headers) });
   if (!session?.user?.id) {
     res.status(401).json({ error: 'Authentication required.' });
@@ -45,7 +45,7 @@ export async function requireBusinessRole(
       res.status(403).json({ error: 'Your business role cannot perform this action.' });
       return null;
     }
-    return { userId: session.user.id, role: member.role };
+    return { userId: session.user.id, name: session.user.name, role: member.role };
   } catch {
     await client.query('ROLLBACK').catch(() => undefined);
     res.status(503).json({ error: 'Unable to verify business access right now.' });
