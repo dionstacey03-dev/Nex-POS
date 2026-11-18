@@ -20,7 +20,7 @@ export default async function createPurchaseOrder(req: VercelRequest, res: Verce
     return res.status(405).json({ error: 'Method not allowed.' });
   }
   const businessId = String(req.query.businessId ?? '');
-  if (!/^[0-9a-f-]{36}$/i.test(businessId)) return res.status(400).json({ error: 'Invalid business identifier.' });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId)) return res.status(400).json({ error: 'Invalid business identifier.' });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid purchase order.', issues: parsed.error.issues });
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager']);
