@@ -112,9 +112,9 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
         [next,businessId,product.id],
       );
       await client.query(
-        `INSERT INTO inventory_movements (business_id,product_id,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id)
-         VALUES ($1::uuid,$2::uuid,$3::uuid,'purchase',$4,$5,$6,'purchase_receipt',$7::uuid,$8,$9)`,
-        [businessId,product.id,product.location_id,incoming,previous,next,receiptId,'Received purchase order ' + purchaseOrderId,actor.userId],
+        `INSERT INTO inventory_movements (business_id,product_id,product_name,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id,actor_name)
+         VALUES ($1::uuid,$2::uuid,$3,$4::uuid,'purchase',$5,$6,$7,'purchase_receipt',$8::uuid,$9,$10,$11)`,
+        [businessId,product.id,product.name,product.location_id,incoming,previous,next,receiptId,'Received purchase order ' + purchaseOrderId,actor.userId,actor.name],
       );
     }
 
