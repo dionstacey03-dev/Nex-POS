@@ -63,7 +63,7 @@ export default async function workspace(req: VercelRequest, res: VercelResponse)
         `SELECT s.id,s.business_id AS "businessId",s.receipt_number AS "receiptNumber",
           s.cashier_user_id AS "cashierUid",u.name AS "cashierName",s.customer_id AS "customerId",
           c.name AS "customerName",s.location_id AS "locationId",s.subtotal::float8,
-          s.discount_amount::float8 AS "discountAmount",s.tax_rate::float8 AS "taxRate",
+          s.discount_amount::float8 AS "discountAmount",s.discount_type AS "discountType",s.discount_value::float8 AS "discountValue",s.tax_rate::float8 AS "taxRate",
           s.tax_amount::float8 AS "taxAmount",s.grand_total::float8 AS "grandTotal",
           s.currency,s.payment_method AS "paymentMethod",s.amount_tendered::float8 AS "amountTendered",
           s.change_due::float8 AS "changeDue",s.payment_reference AS "paymentReference",s.status,
@@ -76,18 +76,18 @@ export default async function workspace(req: VercelRequest, res: VercelResponse)
          WHERE s.business_id=$1::uuid GROUP BY s.id,u.name,c.name ORDER BY s.created_at DESC LIMIT 200`,[businessId]),
       client.query(
         `SELECT id,business_id AS "businessId",product_id AS "productId",location_id AS "locationId",
-          movement_type AS type,quantity_delta::float8 AS "quantityDelta",previous_stock::float8 AS "previousStock",
+          product_name AS "productName",movement_type AS type,quantity_delta::float8 AS "quantityDelta",previous_stock::float8 AS "previousStock",
           new_stock::float8 AS "newStock",reference_type AS "referenceType",reference_id AS "referenceId",
-          reason,actor_user_id AS "actorUid",created_at AS "createdAt"
+          reason,actor_user_id AS "actorUid",actor_name AS "actorName",created_at AS "createdAt"
          FROM inventory_movements WHERE business_id=$1::uuid ORDER BY created_at DESC LIMIT 500`,[businessId]),
       client.query(
         `SELECT p.id,p.business_id AS "businessId",p.purchase_number AS "purchaseNumber",
           p.supplier_id AS "supplierId",s.company_name AS "supplierName",p.location_id AS "locationId",
           p.status,p.total_cost::float8 AS "totalCost",p.created_by_user_id AS "createdByUid",
           p.created_at AS "createdAt",p.updated_at AS "updatedAt",
-          COALESCE(json_agg(json_build_object('id',pi.id,'productId',pi.product_id,
+          COALESCE(json_agg(json_build_object('id',pi.id,'productId',pi.product_id,'productName',pi.product_name,'sku',pi.sku,
             'quantity',pi.quantity_ordered,'quantityReceived',pi.quantity_received,
-            'unitCost',pi.unit_cost)) FILTER (WHERE pi.id IS NOT NULL),'[]'::json) AS items
+            'unitCost',pi.unit_cost,'lineTotal',pi.quantity_ordered * pi.unit_cost)) FILTER (WHERE pi.id IS NOT NULL),'[]'::json) AS items
          FROM purchase_orders p JOIN suppliers s ON s.business_id=p.business_id AND s.id=p.supplier_id
          LEFT JOIN purchase_order_items pi ON pi.business_id=p.business_id AND pi.purchase_order_id=p.id
          WHERE p.business_id=$1::uuid GROUP BY p.id,s.company_name ORDER BY p.created_at DESC LIMIT 200`,[businessId]),
