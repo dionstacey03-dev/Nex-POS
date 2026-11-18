@@ -5,12 +5,22 @@ import { getPool } from '../../../db';
 import { requireBusinessRole } from '../../_lib/authz';
 import { calculateTaxMinorUnits, formatMinorUnits, parseMoneyToMinorUnits } from '../../_lib/money';
 
+const productLineSchema = z.object({
+  kind: z.literal('product'),
+  productId: z.string().uuid(),
+  quantity: z.number().finite().positive().max(99999).refine((value) => Math.round(value * 1000) > 0),
+}).strict();
+const customLineSchema = z.object({
+  kind: z.literal('custom'),
+  name: z.string().trim().min(1).max(140),
+  sku: z.string().trim().max(64).optional().default(''),
+  unitPrice: z.number().finite().nonnegative().max(100000000),
+  quantity: z.number().finite().positive().max(99999).refine((value) => Math.round(value * 1000) > 0),
+}).strict();
+
 const payloadSchema = z.object({
   requestId: z.string().trim().min(12).max(128).regex(/^[a-zA-Z0-9_-]+$/),
-  items: z.array(z.object({
-    productId: z.string().uuid(),
-    quantity: z.number().finite().positive().max(99999).refine((value) => Math.round(value * 1000) > 0),
-  }).strict()).min(1).max(100),
+  items: z.array(z.discriminatedUnion('kind', [productLineSchema, customLineSchema])).min(1).max(100),
   customerId: z.string().uuid().optional(),
   locationId: z.string().uuid().optional(),
   discountType: z.enum(['fixed', 'percent']).optional().default('fixed'),
@@ -41,7 +51,7 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager', 'cashier']);
   if (!actor) return;
 
-  if (actor.role === 'cashier' && parsed.data.discountValue > 0) return res.status(403).json({ error: 'Cashiers cannot apply discounts.' });
+  if (actor.role === 'cashier' && (parsed.data.discountValue > 0 || parsed.data.items.some((item) => item.kind === 'custom'))) return res.status(403).json({ error: 'Cashiers cannot apply discounts or create custom-price items.' });
   if (parsed.data.discountType === 'percent' && parsed.data.discountValue > 100) return res.status(400).json({ error: 'Percentage discount cannot exceed 100%.' });
   const requestFingerprint = createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
   const pool = getPool();
@@ -49,6 +59,7 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   try {
     await client.query('BEGIN');
     await client.query("SELECT set_config('app.business_id', $1, true)", [businessId]);
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [businessId + ':' + parsed.data.requestId]);
 
     const prior = await client.query(
       'SELECT id, receipt_number, grand_total, currency, status, created_at, request_fingerprint FROM sales WHERE business_id = $1::uuid AND request_id = $2',
@@ -65,14 +76,15 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
 
     const quantities = new Map<string, number>();
     for (const item of parsed.data.items) {
+      if (item.kind !== 'product') continue;
       const quantity = Math.round(item.quantity * 1000) / 1000;
       quantities.set(item.productId, (quantities.get(item.productId) ?? 0) + quantity);
     }
     const productIds = [...quantities.keys()].sort();
-    const productResult = await client.query<ProductRow>(
+    const productResult = productIds.length ? await client.query<ProductRow>(
       'SELECT id, name, sku, selling_price::text, purchase_price::text, stock_quantity::text, location_id FROM products WHERE business_id = $1::uuid AND id = ANY($2::uuid[]) AND active = true ORDER BY id FOR UPDATE',
       [businessId, productIds],
-    );
+    ) : { rows: [] as ProductRow[] };
     // Recheck after row locks: concurrent retries wait for the first checkout,
     // then return its result instead of decrementing inventory twice.
     const concurrentPrior = await client.query(
@@ -104,15 +116,23 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
     }
 
     let subtotalMinor = 0;
-    const lineItems = productResult.rows.map((product) => {
+    const productLineItems = productResult.rows.map((product) => {
       const quantity = quantities.get(product.id)!;
       if (Number(product.stock_quantity) < quantity) throw new Error('INSUFFICIENT_STOCK:' + product.name);
       const unitPriceMinor = parseMoneyToMinorUnits(product.selling_price);
       const unitCostMinor = parseMoneyToMinorUnits(product.purchase_price);
       const lineTotalMinor = Math.round(unitPriceMinor * quantity);
       subtotalMinor += lineTotalMinor;
-      return { product, quantity, unitPriceMinor, unitCostMinor, lineTotalMinor };
+      return { product, productId: product.id, name: product.name, sku: product.sku, quantity, unitPriceMinor, unitCostMinor, lineTotalMinor, isCustom: false };
     });
+    const customLineItems = parsed.data.items.filter((item) => item.kind === 'custom').map((item) => {
+      const quantity = Math.round(item.quantity * 1000) / 1000;
+      const unitPriceMinor = parseMoneyToMinorUnits(item.unitPrice);
+      const lineTotalMinor = Math.round(unitPriceMinor * quantity);
+      subtotalMinor += lineTotalMinor;
+      return { product: null, productId: null, name: item.name, sku: item.sku, quantity, unitPriceMinor, unitCostMinor: 0, lineTotalMinor, isCustom: true };
+    });
+    const lineItems = [...productLineItems, ...customLineItems];
     const discountMinor = parsed.data.discountType === 'percent'
       ? Math.round(subtotalMinor * parsed.data.discountValue / 100)
       : parseMoneyToMinorUnits(parsed.data.discountValue);
@@ -152,11 +172,10 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
     );
 
     for (const line of lineItems) {
-      const newStock = Number(line.product.stock_quantity) - line.quantity;
       await client.query(
-        `INSERT INTO sale_items (business_id,sale_id,product_id,product_name,sku,quantity,unit_price,unit_cost,line_total)
-         VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9)`,
-        [businessId,saleId,line.product.id,line.product.name,line.product.sku,line.quantity,formatMinorUnits(line.unitPriceMinor),formatMinorUnits(line.unitCostMinor),formatMinorUnits(line.lineTotalMinor)],
+        `INSERT INTO sale_items (business_id,sale_id,product_id,product_name,sku,quantity,unit_price,unit_cost,line_total,is_custom)
+         VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10)`,
+        [businessId,saleId,line.productId,line.name,line.sku,line.quantity,formatMinorUnits(line.unitPriceMinor),formatMinorUnits(line.unitCostMinor),formatMinorUnits(line.lineTotalMinor),line.isCustom],
       );
       await client.query(
         'UPDATE products SET stock_quantity = $1, updated_at = now() WHERE business_id = $2::uuid AND id = $3::uuid',
@@ -171,7 +190,7 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
 
     await client.query(
       'INSERT INTO audit_logs (business_id,actor_user_id,action,entity_type,entity_id,metadata) VALUES ($1::uuid,$2,$3,$4,$5,$6::jsonb)',
-      [businessId,actor.userId,'sale.completed','sale',saleId,JSON.stringify({ receiptNumber, itemCount: lineItems.length, total: formatMinorUnits(totalMinor) })],
+      [businessId,actor.userId,'sale.completed','sale',saleId,JSON.stringify({ receiptNumber, itemCount: lineItems.length, customItemCount: customLineItems.length, discount: formatMinorUnits(discountMinor), total: formatMinorUnits(totalMinor) })],
     );
     await client.query('COMMIT');
     return res.status(201).json({ sale: saleResult.rows[0] });
