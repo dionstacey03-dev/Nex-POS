@@ -30,6 +30,28 @@ export async function requireBusinessRole(
   try {
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['app.business_id', businessId]);
+    const rate = await client.query<{ request_count: number }>(
+      `INSERT INTO api_rate_limits (user_id,route_key,window_started_at,request_count)
+       VALUES ($1,$2,date_trunc('minute',now()),1)
+       ON CONFLICT (user_id,route_key) DO UPDATE SET
+         request_count = CASE
+           WHEN api_rate_limits.window_started_at < date_trunc('minute',now()) THEN 1
+           ELSE api_rate_limits.request_count + 1
+         END,
+         window_started_at = CASE
+           WHEN api_rate_limits.window_started_at < date_trunc('minute',now()) THEN date_trunc('minute',now())
+           ELSE api_rate_limits.window_started_at
+         END
+       RETURNING request_count`,
+      [session.user.id, 'business-api'],
+    );
+    if (rate.rows[0].request_count > 120) {
+      await client.query('COMMIT');
+      res.setHeader('Retry-After', '60');
+      res.status(429).json({ error: 'Too many business API requests. Please try again shortly.' });
+      return null;
+    }
+
     const membership = await client.query<{ role: BusinessRole; active: boolean }>(
       'SELECT role, active FROM business_memberships WHERE business_id = $1::uuid AND user_id = $2',
       [businessId, session.user.id],
