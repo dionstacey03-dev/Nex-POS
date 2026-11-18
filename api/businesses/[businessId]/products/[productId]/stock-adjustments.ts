@@ -51,6 +51,18 @@ export default async function adjustStock(req: VercelRequest, res: VercelRespons
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Product not found.' });
     }
+    const concurrentPrior = await client.query(
+      'SELECT new_stock, product_id FROM inventory_movements WHERE business_id = $1::uuid AND request_id = $2',
+      [businessId, parsed.data.requestId],
+    );
+    if (concurrentPrior.rowCount) {
+      if (concurrentPrior.rows[0].product_id !== productId) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'This request ID belongs to another stock adjustment.' });
+      }
+      await client.query('COMMIT');
+      return res.status(200).json({ stockQuantity: concurrentPrior.rows[0].new_stock, alreadyApplied: true });
+    }
     const previous = Number(product.stock_quantity);
     const quantity = Math.round(parsed.data.quantityChange * 1000) / 1000;
     const delta = parsed.data.type === 'in' ? quantity
