@@ -28,7 +28,7 @@ This branch is the isolated V2 implementation track. It starts from `main` and d
 
 ## Database
 
-The schema is versioned in `db/migrations/`. Apply it first to a disposable Neon development database. Runtime `DATABASE_URL` must use a dedicated non-owner role without `BYPASSRLS`; use `MIGRATION_DATABASE_URL` only for migrations. Tenant-owned tables use RLS and composite foreign keys to prevent cross-business references. `scripts/migrate.ts` refuses production migrations unless `ALLOW_PRODUCTION_MIGRATIONS=true` is explicitly set.
+The schema is versioned in `db/migrations/`. Apply it first to a disposable Neon development database. Runtime `DATABASE_URL` must use a pooled connection and a dedicated non-owner role without `BYPASSRLS`; set its role name in `APP_DB_ROLE`. Use `MIGRATION_DATABASE_URL` only for migrations. The migration runner verifies the runtime role is not superuser, BYPASSRLS, or table owner, then grants required table and sequence privileges. Tenant-owned tables use RLS and composite foreign keys to prevent cross-business references. `scripts/migrate.ts` refuses production migrations unless `ALLOW_PRODUCTION_MIGRATIONS=true` is explicitly set.
 
 Better Auth persistence tables are included in `0002_better_auth.sql` and represented in `db/schema/auth.ts`. Keep the SQL migration and installed Better Auth version aligned; regenerate and review the adapter schema whenever Better Auth is upgraded.
 
