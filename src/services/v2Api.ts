@@ -21,9 +21,14 @@ export async function v2Api<T>(path: string, init: RequestInit = {}): Promise<T>
 
 export interface CheckoutRequest {
   requestId: string;
-  items: Array<{ productId: string; quantity: number }>;
+  items: Array<
+    | { kind: 'product'; productId: string; quantity: number }
+    | { kind: 'custom'; name: string; sku?: string; unitPrice: number; quantity: number }
+  >;
   customerId?: string;
   locationId?: string;
+  discountType?: 'fixed' | 'percent';
+  discountValue?: number;
   paymentMethod: 'cash' | 'card' | 'other';
   amountTendered?: number;
   paymentReference?: string;
