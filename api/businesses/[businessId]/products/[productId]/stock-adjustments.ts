@@ -17,7 +17,7 @@ export default async function adjustStock(req: VercelRequest, res: VercelRespons
   }
   const businessId = String(req.query.businessId ?? '');
   const productId = String(req.query.productId ?? '');
-  if (!/^[0-9a-f-]{36}$/i.test(businessId) || !/^[0-9a-f-]{36}$/i.test(productId)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId)) {
     return res.status(400).json({ error: 'Invalid business or product identifier.' });
   }
   const parsed = schema.safeParse(req.body);
