@@ -28,9 +28,9 @@ This branch is the isolated V2 implementation track. It starts from `main` and d
 
 ## Database
 
-The baseline schema is in `db/migrations/0001_initial.sql`. Review and apply it only to a disposable Neon development database first. The schema enables RLS for tenant-owned tables and uses composite foreign keys to prevent cross-business references.
+The schema is versioned in `db/migrations/`. Apply it first to a disposable Neon development database. Runtime `DATABASE_URL` must use a dedicated non-owner role without `BYPASSRLS`; use `MIGRATION_DATABASE_URL` only for migrations. Tenant-owned tables use RLS and composite foreign keys to prevent cross-business references. `scripts/migrate.ts` refuses production migrations unless `ALLOW_PRODUCTION_MIGRATIONS=true` is explicitly set.
 
-Important: the migration intentionally does not create Better Auth's user/session/account/verification tables. Those must be generated from the exact Better Auth version installed, reviewed, and added as a separate migration before auth is enabled.
+Better Auth persistence tables are included in `0002_better_auth.sql` and represented in `db/schema/auth.ts`. Keep the SQL migration and installed Better Auth version aligned; regenerate and review the adapter schema whenever Better Auth is upgraded.
 
 ## Environment
 
@@ -49,4 +49,4 @@ Copy `.env.example` and configure a Neon development database and Better Auth se
 
 ## Validation status
 
-This is an architecture foundation, not a production-ready release. Database migrations, auth schema generation, lockfile regeneration, automated tests, and Vercel preview validation remain required before the branch can be considered deployable.
+This is an in-progress migration foundation, not a production-ready release. The existing React context and repository adapters still use Firebase; they have not yet been switched to the new API. Product/customer/supplier read and CRUD endpoints, full frontend auth migration, full regression/integration tests, lockfile regeneration, Better Auth schema verification, Neon migration execution, and Vercel preview validation remain required. No production migration or deployment has been performed.
