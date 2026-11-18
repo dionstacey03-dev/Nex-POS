@@ -80,8 +80,8 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
     }
 
     const productIds = [...new Set(itemRows.rows.map((item) => item.product_id))].sort();
-    const productRows = await client.query<{ id: string; stock_quantity: string; location_id: string | null }>(
-      'SELECT id,stock_quantity::text,location_id FROM products WHERE business_id = $1::uuid AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE',
+    const productRows = await client.query<{ id: string; stock_quantity: string; location_id: string | null; name: string }>(
+      'SELECT id,stock_quantity::text,location_id,name FROM products WHERE business_id = $1::uuid AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE',
       [businessId,productIds],
     );
     if (productRows.rows.length !== productIds.length) {
