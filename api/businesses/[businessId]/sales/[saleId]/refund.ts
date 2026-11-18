@@ -17,7 +17,7 @@ export default async function refundSale(req: VercelRequest, res: VercelResponse
   }
   const businessId = String(req.query.businessId ?? '');
   const saleId = String(req.query.saleId ?? '');
-  if (!/^[0-9a-f-]{36}$/i.test(businessId) || !/^[0-9a-f-]{36}$/i.test(saleId)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saleId)) {
     return res.status(400).json({ error: 'Invalid business or sale identifier.' });
   }
   const parsed = schema.safeParse(req.body);
