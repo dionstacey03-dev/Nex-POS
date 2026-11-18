@@ -43,7 +43,7 @@ export default async function createPurchaseOrder(req: VercelRequest, res: Verce
       }
     }
     const products = [...new Set(parsed.data.items.map((item) => item.productId))].sort();
-    const productRows = await client.query('SELECT id FROM products WHERE business_id = $1::uuid AND id = ANY($2::uuid[]) AND active = true', [businessId,products]);
+    const productRows = await client.query<{ id: string; name: string; sku: string }>('SELECT id,name,sku FROM products WHERE business_id = $1::uuid AND id = ANY($2::uuid[]) AND active = true', [businessId,products]);
     if (productRows.rows.length !== products.length) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'One or more products are unavailable in this business.' });
@@ -61,10 +61,11 @@ export default async function createPurchaseOrder(req: VercelRequest, res: Verce
       [poId,businessId,purchaseNumber,parsed.data.supplierId,parsed.data.locationId ?? null,formatMinorUnits(totalMinor),actor.userId],
     );
     for (const item of parsed.data.items) {
+      const product = productRows.rows.find((row) => row.id === item.productId)!;
       await client.query(
-        `INSERT INTO purchase_order_items (business_id,purchase_order_id,product_id,quantity_ordered,unit_cost)
-         VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5)`,
-        [businessId,poId,item.productId,Math.round(item.quantity * 1000) / 1000,formatMinorUnits(parseMoneyToMinorUnits(item.unitCost))],
+        `INSERT INTO purchase_order_items (business_id,purchase_order_id,product_id,product_name,sku,quantity_ordered,unit_cost)
+         VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7)`,
+        [businessId,poId,item.productId,product.name,product.sku,Math.round(item.quantity * 1000) / 1000,formatMinorUnits(parseMoneyToMinorUnits(item.unitCost))],
       );
     }
     await client.query(
