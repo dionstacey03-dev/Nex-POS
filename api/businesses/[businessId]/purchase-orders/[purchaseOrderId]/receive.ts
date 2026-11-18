@@ -18,7 +18,7 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
   }
   const businessId = String(req.query.businessId ?? '');
   const purchaseOrderId = String(req.query.purchaseOrderId ?? '');
-  if (!/^[0-9a-f-]{36}$/i.test(businessId) || !/^[0-9a-f-]{36}$/i.test(purchaseOrderId)) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(purchaseOrderId)) {
     return res.status(400).json({ error: 'Invalid business or purchase order identifier.' });
   }
   const parsed = schema.safeParse(req.body);
