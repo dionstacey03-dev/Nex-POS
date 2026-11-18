@@ -177,15 +177,18 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
          VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10)`,
         [businessId,saleId,line.productId,line.name,line.sku,line.quantity,formatMinorUnits(line.unitPriceMinor),formatMinorUnits(line.unitCostMinor),formatMinorUnits(line.lineTotalMinor),line.isCustom],
       );
-      await client.query(
-        'UPDATE products SET stock_quantity = $1, updated_at = now() WHERE business_id = $2::uuid AND id = $3::uuid',
-        [newStock,businessId,line.product.id],
-      );
-      await client.query(
-        `INSERT INTO inventory_movements (business_id,product_id,product_name,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id,actor_name)
-         VALUES ($1::uuid,$2::uuid,$3,$4::uuid,'sale',$5,$6,$7,'sale',$8::uuid,$9,$10,$11)`,
-        [businessId,line.product.id,line.product.name,line.product.location_id,line.quantity * -1,line.product.stock_quantity,newStock,saleId,'POS sale ' + receiptNumber,actor.userId,actor.name],
-      );
+      if (line.product) {
+        const newStock = Number(line.product.stock_quantity) - line.quantity;
+        await client.query(
+          'UPDATE products SET stock_quantity = $1, updated_at = now() WHERE business_id = $2::uuid AND id = $3::uuid',
+          [newStock,businessId,line.product.id],
+        );
+        await client.query(
+          `INSERT INTO inventory_movements (business_id,product_id,product_name,location_id,movement_type,quantity_delta,previous_stock,new_stock,reference_type,reference_id,reason,actor_user_id,actor_name)
+           VALUES ($1::uuid,$2::uuid,$3,$4::uuid,'sale',$5,$6,$7,'sale',$8::uuid,$9,$10,$11)`,
+          [businessId,line.product.id,line.product.name,line.product.location_id,line.quantity * -1,line.product.stock_quantity,newStock,saleId,'POS sale ' + receiptNumber,actor.userId,actor.name],
+        );
+      }
     }
 
     await client.query(
