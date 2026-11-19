@@ -95,6 +95,10 @@ export default function App() {
     return <V2WorkspacePage />;
   }
 
+  if (window.location.pathname === '/v2/employees') {
+    return <EmployeesView />;
+  }
+
   return (
     <NexPosProvider>
       <AppShell>
