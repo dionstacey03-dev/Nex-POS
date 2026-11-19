@@ -212,16 +212,47 @@ export const V2DataWorkspacePage: React.FC = () => {
           ] as const).map(([key, Icon]) => <button key={key} type="button" onClick={() => { setSection(key); setSearch(''); }} className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold ${section === key ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-600'}`}><Icon className="h-4 w-4" />{labels[key]}</button>)}
         </nav>
 
+
+        {section === 'products' && canManageProducts && <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => { setProductFormOpen((open) => !open); setError(''); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"><Plus className="h-4 w-4" />Add product</button>
+          <button type="button" onClick={() => { setSection('inventory'); setStockFormOpen(true); setError(''); }} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-200"><ArrowDownUp className="h-4 w-4" />Adjust stock</button>
+        </div>}
+
+        {productFormOpen && section === 'products' && <form onSubmit={handleCreateProduct} className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 md:grid-cols-2">
+          <div className="md:col-span-2"><h2 className="font-semibold">Create V2 product</h2><p className="mt-1 text-xs text-slate-400">New products start with zero stock. Add opening stock through a separate recorded adjustment.</p></div>
+          <input required maxLength={140} value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} placeholder="Product name" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required maxLength={64} value={productForm.sku} onChange={(event) => setProductForm({ ...productForm, sku: event.target.value })} placeholder="SKU" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <select required value={productForm.categoryId} onChange={(event) => setProductForm({ ...productForm, categoryId: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm"><option value="">Choose category</option>{categoryRows.map((row) => <option key={valueText(row.id)} value={valueText(row.id)}>{valueText(row.name)}</option>)}</select>
+          <select value={productForm.locationId} onChange={(event) => setProductForm({ ...productForm, locationId: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm"><option value="">No location assigned</option>{locationRows.map((row) => <option key={valueText(row.id)} value={valueText(row.id)}>{valueText(row.name)}</option>)}</select>
+          <input required type="number" min="0" step="0.01" value={productForm.purchasePrice} onChange={(event) => setProductForm({ ...productForm, purchasePrice: event.target.value })} placeholder="Purchase price" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required type="number" min="0" step="0.01" value={productForm.sellingPrice} onChange={(event) => setProductForm({ ...productForm, sellingPrice: event.target.value })} placeholder="Selling price" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required type="number" min="0" step="0.001" value={productForm.minStockLevel} onChange={(event) => setProductForm({ ...productForm, minStockLevel: event.target.value })} placeholder="Minimum stock level" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input maxLength={500} value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} placeholder="Description (optional)" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <div className="flex flex-wrap items-center gap-2 md:col-span-2"><button disabled={saving || categoryRows.length === 0} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Create product'}</button><button type="button" onClick={() => setProductFormOpen(false)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm">Cancel</button>{categoryRows.length === 0 && <span className="text-xs text-amber-300">Create a V2 category before adding products.</span>}</div>
+        </form>}
+
+        {section === 'inventory' && canManageProducts && <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => { setStockFormOpen((open) => !open); setError(''); }} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"><ArrowDownUp className="h-4 w-4" />Record stock adjustment</button>
+        </div>}
+        {stockFormOpen && section === 'inventory' && <form onSubmit={handleStockAdjustment} className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 md:grid-cols-2">
+          <div className="md:col-span-2"><h2 className="font-semibold">Record stock adjustment</h2><p className="mt-1 text-xs text-slate-400">The API updates stock and writes its movement in one transaction. “Set quantity” uses the target stock level.</p></div>
+          <select required value={stockForm.productId} onChange={(event) => setStockForm({ ...stockForm, productId: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm"><option value="">Choose product</option>{productRows.map((row) => <option key={valueText(row.id)} value={valueText(row.id)}>{valueText(row.name)} · {valueText(row.sku)}</option>)}</select>
+          <select value={stockForm.type} onChange={(event) => setStockForm({ ...stockForm, type: event.target.value as 'in' | 'out' | 'adjustment' })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm"><option value="in">Stock in</option><option value="out">Stock out</option><option value="adjustment">Set quantity</option></select>
+          <input required type="number" min="0.001" step="0.001" value={stockForm.quantityChange} onChange={(event) => setStockForm({ ...stockForm, quantityChange: event.target.value })} placeholder={stockForm.type === 'adjustment' ? 'Target quantity' : 'Quantity'} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required maxLength={240} value={stockForm.reason} onChange={(event) => setStockForm({ ...stockForm, reason: event.target.value })} placeholder="Reason for adjustment" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <div className="flex gap-2 md:col-span-2"><button disabled={saving || productRows.length === 0} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Record adjustment'}</button><button type="button" onClick={() => setStockFormOpen(false)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm">Cancel</button></div>
+        </form>}
+
         <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
-            <div><h2 className="font-semibold">{labels[section]}</h2><p className="mt-1 text-xs text-slate-400">{rows.length.toLocaleString()} records shown · read-only</p></div>
+            <div><h2 className="font-semibold">{labels[section]}</h2><p className="mt-1 text-xs text-slate-400">{rows.length.toLocaleString()} records shown</p></div>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Search ${labels[section].toLowerCase()}…`} className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
           </div>
           {!snapshot ? <div className="p-10 text-center text-sm text-slate-400">{busy ? 'Loading workspace data…' : 'Select a business workspace to view its records.'}</div>
             : rows.length === 0 ? <div className="p-10 text-center text-sm text-slate-400">No matching records in this section.</div>
             : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-950/70 text-slate-400"><tr>{columns.map((column) => <th key={column} className="px-4 py-3 font-medium capitalize">{column.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</th>)}</tr></thead><tbody className="divide-y divide-slate-800">{rows.map((row, index) => <tr key={valueText(row.id, String(index))} className="hover:bg-slate-800/40">{columns.map((column) => <td key={column} className="max-w-64 truncate px-4 py-3 text-slate-200">{column === 'sellingPrice' || column === 'totalSpent' || column === 'grandTotal' ? formatMoney(row[column], snapshot.business.currency) : valueText(row[column])}</td>)}</tr>)}</tbody></table></div>}
         </section>
-        <p className="text-xs leading-relaxed text-slate-500">This first migration step is intentionally read-only. Writes remain on the existing application until each V2 mutation flow is validated against the server API and transaction rules.</p>
+        <p className="text-xs leading-relaxed text-slate-500">Product creation and stock adjustments now use the V2 server API. Other sections remain read-only while their mutation workflows are migrated and validated.</p>
       </div>
     </main>
   );
