@@ -158,6 +158,58 @@ export function archiveProduct(businessId: string, productId: string) {
   );
 }
 
+export interface CreateCategoryRequest {
+  name: string;
+  description?: string;
+  color?: string;
+  sortOrder?: number;
+}
+
+export type UpdateCategoryRequest = Partial<CreateCategoryRequest> & {
+  description?: string | null;
+  color?: string | null;
+  active?: boolean;
+};
+
+export interface V2Category {
+  id: string;
+  businessId: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getCategories(businessId: string) {
+  return v2Api<{ categories: V2Category[] }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/categories`,
+  );
+}
+
+export function createCategory(businessId: string, payload: CreateCategoryRequest) {
+  return v2Api<{ category: V2Category }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/categories`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function updateCategory(businessId: string, categoryId: string, payload: UpdateCategoryRequest) {
+  return v2Api<{ category: V2Category; archived?: boolean }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/categories/${encodeURIComponent(categoryId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
+
+export function archiveCategory(businessId: string, categoryId: string) {
+  return v2Api<{ category: V2Category; archived: boolean }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/categories/${encodeURIComponent(categoryId)}`,
+    { method: 'DELETE' },
+  );
+}
+
 export function submitCheckout(businessId: string, payload: CheckoutRequest) {
   return v2Api<{ sale: Record<string, unknown>; alreadyProcessed?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/checkout`,
