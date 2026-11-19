@@ -8,6 +8,7 @@ const schema = z.object({
   type: z.enum(['in', 'out', 'adjustment']),
   quantityChange: z.number().finite().positive().max(1000000),
   reason: z.string().trim().min(1).max(240),
+  locationId: z.string().uuid().optional(),
 }).strict();
 
 export default async function adjustStock(req: VercelRequest, res: VercelResponse) {
@@ -17,7 +18,8 @@ export default async function adjustStock(req: VercelRequest, res: VercelRespons
   }
   const businessId = String(req.query.businessId ?? '');
   const productId = String(req.query.productId ?? '');
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(businessId) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId)) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuid.test(businessId) || !uuid.test(productId)) {
     return res.status(400).json({ error: 'Invalid business or product identifier.' });
   }
   const parsed = schema.safeParse(req.body);
@@ -51,6 +53,11 @@ export default async function adjustStock(req: VercelRequest, res: VercelRespons
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Product not found.' });
     }
+    if (parsed.data.locationId && parsed.data.locationId !== product.location_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'The selected location does not match this product inventory location.' });
+    }
+
     const concurrentPrior = await client.query(
       'SELECT new_stock, product_id FROM inventory_movements WHERE business_id = $1::uuid AND request_id = $2',
       [businessId, parsed.data.requestId],
