@@ -394,3 +394,27 @@ export function receivePurchaseOrder(
     { method: 'POST', body: JSON.stringify(payload) },
   );
 }
+
+export type UpdateBusinessSettingsRequest = Partial<Pick<
+  Business,
+  | 'name'
+  | 'businessType'
+  | 'logoUrl'
+  | 'address'
+  | 'phone'
+  | 'email'
+  | 'currency'
+  | 'taxRate'
+  | 'receiptHeader'
+  | 'receiptFooter'
+  | 'lowStockAlertEnabled'
+  | 'lowStockAlertEmail'
+  | 'lowStockAlertTime'
+>>;
+
+export function updateBusinessSettings(businessId: string, payload: UpdateBusinessSettingsRequest) {
+  return v2Api<{ business: Business }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/settings`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
