@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
-import { getPool } from '@/db';
-import { requireBusinessRole } from '@/api/_lib/authz';
+import { getPool } from '../../../../../../db/index.js';
+import { requireBusinessRole } from '../../../../../../api/_lib/authz.js';
 
 const schema = z.object({
   requestId: z.string().trim().min(12).max(128).regex(/^[a-zA-Z0-9_-]+$/),
