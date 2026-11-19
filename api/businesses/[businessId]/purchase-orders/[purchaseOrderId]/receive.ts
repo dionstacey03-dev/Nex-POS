@@ -31,7 +31,7 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
     await client.query('BEGIN');
     await client.query("SELECT set_config('app.business_id', $1, true)", [businessId]);
     const poResult = await client.query(
-      'SELECT id,status FROM purchase_orders WHERE business_id = $1::uuid AND id = $2::uuid FOR UPDATE',
+      'SELECT id,status,location_id FROM purchase_orders WHERE business_id = $1::uuid AND id = $2::uuid FOR UPDATE',
       [businessId,purchaseOrderId],
     );
     if (!poResult.rowCount) {
