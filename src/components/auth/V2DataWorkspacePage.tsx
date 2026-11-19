@@ -192,7 +192,7 @@ export const V2DataWorkspacePage: React.FC = () => {
   };
 
   const columns = section === 'products'
-    ? ['name', 'sku', 'categoryId', 'stockQuantity', 'sellingPrice', 'active']
+    ? ['name', 'sku', 'categoryId', 'stockQuantity', 'sellingPrice', 'active', 'actions']
     : section === 'customers'
       ? ['name', 'phone', 'email', 'ordersCount', 'totalSpent']
       : section === 'sales'
@@ -218,7 +218,7 @@ export const V2DataWorkspacePage: React.FC = () => {
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100">
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div><a href="/v2" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" />Back to workspaces</a><h1 className="mt-3 text-2xl font-bold">V2 Data Workspace</h1><p className="mt-1 text-sm text-slate-400">Read-only view of records loaded from the Neon-backed API.</p></div>
+          <div><a href="/v2" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" />Back to workspaces</a><h1 className="mt-3 text-2xl font-bold">V2 Data Workspace</h1><p className="mt-1 text-sm text-slate-400">V2 workspace records and validated product management actions.</p></div>
           <button type="button" onClick={() => authClient.signOut()} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" />Sign out</button>
         </header>
 
@@ -271,6 +271,18 @@ export const V2DataWorkspacePage: React.FC = () => {
           <div className="flex gap-2 md:col-span-2"><button disabled={saving || productRows.length === 0} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Record adjustment'}</button><button type="button" onClick={() => setStockFormOpen(false)} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm">Cancel</button></div>
         </form>}
 
+        {editingProductId && <form onSubmit={handleUpdateProduct} className="grid gap-3 rounded-2xl border border-blue-900 bg-slate-900 p-4 md:grid-cols-2">
+          <div className="md:col-span-2"><h2 className="font-semibold">Edit product</h2><p className="mt-1 text-xs text-slate-400">Changes are validated by the V2 API and recorded in the audit log.</p></div>
+          <input required maxLength={140} value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} placeholder="Product name" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required maxLength={64} value={editForm.sku} onChange={(event) => setEditForm({ ...editForm, sku: event.target.value })} placeholder="SKU" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <select required value={editForm.categoryId} onChange={(event) => setEditForm({ ...editForm, categoryId: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm"><option value="">Choose category</option>{categoryRows.map((row) => <option key={valueText(row.id)} value={valueText(row.id)}>{valueText(row.name)}</option>)}</select>
+          <select value={editForm.locationId} onChange={(event) => setEditForm({ ...editForm, locationId: event.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm"><option value="">No location assigned</option>{locationRows.map((row) => <option key={valueText(row.id)} value={valueText(row.id)}>{valueText(row.name)}</option>)}</select>
+          <input required type="number" min="0" step="0.01" value={editForm.purchasePrice} onChange={(event) => setEditForm({ ...editForm, purchasePrice: event.target.value })} placeholder="Purchase price" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required type="number" min="0" step="0.01" value={editForm.sellingPrice} onChange={(event) => setEditForm({ ...editForm, sellingPrice: event.target.value })} placeholder="Selling price" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input required type="number" min="0" step="0.001" value={editForm.minStockLevel} onChange={(event) => setEditForm({ ...editForm, minStockLevel: event.target.value })} placeholder="Minimum stock level" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <input maxLength={500} value={editForm.description} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} placeholder="Description" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
+          <div className="flex gap-2 md:col-span-2"><button disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button><button type="button" onClick={() => setEditingProductId('')} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm">Cancel</button></div>
+        </form>
         <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
             <div><h2 className="font-semibold">{labels[section]}</h2><p className="mt-1 text-xs text-slate-400">{rows.length.toLocaleString()} records shown</p></div>
@@ -278,9 +290,9 @@ export const V2DataWorkspacePage: React.FC = () => {
           </div>
           {!snapshot ? <div className="p-10 text-center text-sm text-slate-400">{busy ? 'Loading workspace data…' : 'Select a business workspace to view its records.'}</div>
             : rows.length === 0 ? <div className="p-10 text-center text-sm text-slate-400">No matching records in this section.</div>
-            : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-950/70 text-slate-400"><tr>{columns.map((column) => <th key={column} className="px-4 py-3 font-medium capitalize">{column.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</th>)}</tr></thead><tbody className="divide-y divide-slate-800">{rows.map((row, index) => <tr key={valueText(row.id, String(index))} className="hover:bg-slate-800/40">{columns.map((column) => <td key={column} className="max-w-64 truncate px-4 py-3 text-slate-200">{column === 'sellingPrice' || column === 'totalSpent' || column === 'grandTotal' ? formatMoney(row[column], snapshot.business.currency) : valueText(row[column])}</td>)}</tr>)}</tbody></table></div>}
+            : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-slate-950/70 text-slate-400"><tr>{columns.map((column) => <th key={column} className="px-4 py-3 font-medium capitalize">{column.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}</th>)}</tr></thead><tbody className="divide-y divide-slate-800">{rows.map((row, index) => <tr key={valueText(row.id, String(index))} className="hover:bg-slate-800/40">{columns.map((column) => <td key={column} className="max-w-64 truncate px-4 py-3 text-slate-200">{column === 'actions' && section === 'products' && canManageProducts ? <div className="flex gap-2"><button type="button" disabled={saving || row.active === false} onClick={() => beginEditProduct(row)} className="rounded-lg border border-slate-700 px-2 py-1 text-xs hover:bg-slate-700 disabled:opacity-40">Edit</button><button type="button" disabled={saving || row.active === false} onClick={() => handleArchiveProduct(row)} className="rounded-lg border border-rose-900 px-2 py-1 text-xs text-rose-300 hover:bg-rose-950 disabled:opacity-40">Archive</button></div> : column === 'sellingPrice' || column === 'totalSpent' || column === 'grandTotal' ? formatMoney(row[column], snapshot.business.currency) : valueText(row[column])}</td>)}</tr>)}</tbody></table></div>}
         </section>
-        <p className="text-xs leading-relaxed text-slate-500">Product creation and stock adjustments now use the V2 server API. Other sections remain read-only while their mutation workflows are migrated and validated.</p>
+        <p className="text-xs leading-relaxed text-slate-500">Product creation, editing, archiving and stock adjustments now use the V2 server API. Archiving preserves history and is blocked while stock remains.</p>
       </div>
     </main>
   );
