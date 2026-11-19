@@ -6,6 +6,7 @@
 import React from 'react';
 import { AcceptInvitationPage } from './components/auth/AcceptInvitationPage';
 import { V2WorkspacePage } from './components/auth/V2WorkspacePage';
+import { V2DataWorkspacePage } from './components/auth/V2DataWorkspacePage';
 import { NexPosProvider, useNexPos } from './context/NexPosContext';
 import { AppShell } from './components/layout/AppShell';
 import { ReceiptModal } from './components/common/ReceiptModal';
@@ -97,6 +98,10 @@ export default function App() {
 
   if (window.location.pathname === '/v2/employees') {
     return <EmployeesView />;
+  }
+
+  if (window.location.pathname === '/v2/data') {
+    return <V2DataWorkspacePage />;
   }
 
   return (
