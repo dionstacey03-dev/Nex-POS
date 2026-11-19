@@ -418,3 +418,15 @@ export function updateBusinessSettings(businessId: string, payload: UpdateBusine
     { method: 'PATCH', body: JSON.stringify(payload) },
   );
 }
+
+export interface UpdateEmployeeRequest {
+  role?: UserRole;
+  status?: 'active' | 'inactive';
+}
+
+export function updateEmployee(businessId: string, userId: string, payload: UpdateEmployeeRequest) {
+  return v2Api<{ employee: unknown }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/employees/${encodeURIComponent(userId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
