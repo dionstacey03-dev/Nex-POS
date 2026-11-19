@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getPool } from '@/db';
-import { requireBusinessRole } from '@/api/_lib/authz';
+import { getPool } from '../../../../db/index.js';
+import { requireBusinessRole } from '../../../../api/_lib/authz.js';
 import { getWorkspaceAccess } from '@/api/_lib/workspaceAccess';
 
 export default async function workspace(req: VercelRequest, res: VercelResponse) {
