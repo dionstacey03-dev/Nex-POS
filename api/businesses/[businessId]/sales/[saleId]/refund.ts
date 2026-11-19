@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { getPool } from '../../../../../db';
@@ -25,16 +26,17 @@ export default async function refundSale(req: VercelRequest, res: VercelResponse
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager']);
   if (!actor) return;
 
+  const requestFingerprint = createHash('sha256').update(JSON.stringify({ saleId, reason: parsed.data.reason, refundMethod: parsed.data.refundMethod, paymentReference: parsed.data.paymentReference ?? null })).digest('hex');
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
     await client.query("SELECT set_config('app.business_id', $1, true)", [businessId]);
     const priorRequest = await client.query(
-      'SELECT id, sale_id, amount, refund_method, created_at FROM refunds WHERE business_id = $1::uuid AND request_id = $2',
+      'SELECT id, sale_id, amount, refund_method, created_at, request_fingerprint FROM refunds WHERE business_id = $1::uuid AND request_id = $2',
       [businessId,parsed.data.requestId],
     );
     if (priorRequest.rowCount) {
-      if (priorRequest.rows[0].sale_id !== saleId) {
+      if (priorRequest.rows[0].sale_id !== saleId || priorRequest.rows[0].request_fingerprint !== requestFingerprint) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'This refund request ID belongs to another sale.' });
       }
@@ -83,10 +85,10 @@ export default async function refundSale(req: VercelRequest, res: VercelResponse
     }
 
     const refund = await client.query(
-      `INSERT INTO refunds (business_id,sale_id,request_id,amount,reason,refund_method,payment_reference,actor_user_id)
-       VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO refunds (business_id,sale_id,request_id,request_fingerprint,amount,reason,refund_method,payment_reference,actor_user_id)
+       VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id,sale_id,amount,refund_method,created_at`,
-      [businessId,saleId,parsed.data.requestId,sale.grand_total,parsed.data.reason,parsed.data.refundMethod,parsed.data.paymentReference ?? null,actor.userId],
+      [businessId,saleId,parsed.data.requestId,requestFingerprint,sale.grand_total,parsed.data.reason,parsed.data.refundMethod,parsed.data.paymentReference ?? null,actor.userId],
     );
 
     for (const item of items.rows) {
