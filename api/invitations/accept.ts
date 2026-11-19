@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { auth } from '../../../../auth';
-import { getPool } from '../../../../db';
-import { requestHeaders } from '../../../_lib/authz';
+import { auth } from '../../auth';
+import { getPool } from '../../db';
+import { requestHeaders } from '../_lib/authz';
 
-const schema = z.object({ token: z.string().min(32).max(128) }).strict();
+const schema = z.object({ businessId: z.string().uuid(), token: z.string().min(32).max(128) }).strict();
 
 export default async function acceptInvitation(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -19,14 +19,15 @@ export default async function acceptInvitation(req: VercelRequest, res: VercelRe
     return res.status(401).json({ error: 'Sign in with the invited email address before accepting this invitation.' });
   }
   const tokenHash = createHash('sha256').update(parsed.data.token).digest('hex');
+  await getPool().query("SELECT set_config('app.business_id', $1, false)", [parsed.data.businessId]);
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
     const invitation = await client.query<{
       id: string; business_id: string; email: string; role: 'admin' | 'manager' | 'cashier';
     }>(
-      'SELECT id,business_id,email,role FROM business_invitations WHERE token_hash=$1 AND accepted_at IS NULL AND expires_at>now() FOR UPDATE',
-      [tokenHash],
+      'SELECT id,business_id,email,role FROM business_invitations WHERE business_id=$1::uuid AND token_hash=$2 AND accepted_at IS NULL AND expires_at>now() FOR UPDATE',
+      [parsed.data.businessId,tokenHash],
     );
     const invite = invitation.rows[0];
     if (!invite) {
