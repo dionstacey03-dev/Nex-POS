@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
-import { getPool } from '@/db';
-import { requireBusinessRole } from '@/api/_lib/authz';
+import { getPool } from '../../../../../db/index.js';
+import { requireBusinessRole } from '../../../../../api/_lib/authz.js';
 
 const schema = z.object({
   role: z.enum(['admin', 'manager', 'cashier']).optional(),
