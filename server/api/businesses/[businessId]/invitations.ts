@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { getPool } from '@/db';
-import { requireBusinessRole } from '@/api/_lib/authz';
+import { getPool } from '../../../../db/index.js';
+import { requireBusinessRole } from '../../../../api/_lib/authz.js';
 
 const schema = z.object({
   email: z.string().trim().email().max(160),
