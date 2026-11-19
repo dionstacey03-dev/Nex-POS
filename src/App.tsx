@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { AcceptInvitationPage } from './components/auth/AcceptInvitationPage';
 import { NexPosProvider, useNexPos } from './context/NexPosContext';
 import { AppShell } from './components/layout/AppShell';
 import { ReceiptModal } from './components/common/ReceiptModal';
@@ -85,6 +86,10 @@ const NexPosRouter: React.FC = () => {
 };
 
 export default function App() {
+  if (window.location.pathname === '/accept-invitation') {
+    return <AcceptInvitationPage />;
+  }
+
   return (
     <NexPosProvider>
       <AppShell>
