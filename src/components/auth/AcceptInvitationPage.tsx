@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, CheckCircle2, KeyRound, LoaderCircle, LockKeyhole, Mail } from 'lucide-react';
-import { authClient } from '../../lib/auth-client';
+import { authClient, useV2Session } from '../../lib/auth-client';
 import { acceptEmployeeInvitation } from '../../services/v2Api';
 
 type Mode = 'sign-in' | 'sign-up';
@@ -12,7 +12,7 @@ function readInvitation() {
 
 export const AcceptInvitationPage: React.FC = () => {
   const invitation = readInvitation();
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending } = useV2Session();
   const [mode, setMode] = useState<Mode>('sign-in');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

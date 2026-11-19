@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Database, LoaderCircle, LogOut, Package, Users, Receipt, Boxes, Plus, ArrowDownUp } from 'lucide-react';
-import { authClient } from '../../lib/auth-client';
+import { authClient, useV2Session } from '../../lib/auth-client';
 import { getBusinesses, getWorkspace, createProduct, updateProduct, archiveProduct, adjustStock, type CreateProductRequest, type UpdateProductRequest, type V2BusinessSummary, type V2WorkspaceSnapshot } from '../../services/v2Api';
 
 type Section = 'products' | 'customers' | 'sales' | 'inventory';
@@ -24,7 +24,7 @@ const formatMoney = (value: unknown, currency: string): string => {
 };
 
 export const V2DataWorkspacePage: React.FC = () => {
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending } = useV2Session();
   const [businesses, setBusinesses] = useState<V2BusinessSummary[]>([]);
   const [businessId, setBusinessId] = useState('');
   const [snapshot, setSnapshot] = useState<V2WorkspaceSnapshot | null>(null);

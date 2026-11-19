@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, Building2, CheckCircle2, LoaderCircle, LogIn, LogOut, Plus, Store } from 'lucide-react';
-import { authClient } from '../../lib/auth-client';
+import { authClient, useV2Session } from '../../lib/auth-client';
 import { createBusiness, getBusinesses, getWorkspace, type V2BusinessSummary, type V2WorkspaceSnapshot } from '../../services/v2Api';
 import type { BusinessType, CurrencyCode } from '../../types/nexpos';
 
 export const V2WorkspacePage: React.FC = () => {
-  const { data: session, isPending } = authClient.useSession();
+  const { data: session, isPending } = useV2Session();
   const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

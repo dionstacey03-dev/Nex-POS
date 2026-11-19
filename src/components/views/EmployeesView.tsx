@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Copy, Edit3, LoaderCircle, MailPlus, ShieldCheck, UserCheck, Users, X } from 'lucide-react';
-import { authClient } from '../../lib/auth-client';
+import { authClient, useV2Session } from '../../lib/auth-client';
 import {
   createEmployeeInvitation,
   getBusinesses,
@@ -25,7 +25,7 @@ interface V2Employee {
 type EditableRole = Exclude<UserRole, 'owner'>;
 
 export const EmployeesView: React.FC = () => {
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const { data: session, isPending: sessionPending } = useV2Session();
   const [businesses, setBusinesses] = useState<V2BusinessSummary[]>([]);
   const [businessId, setBusinessId] = useState('');
   const [employees, setEmployees] = useState<V2Employee[]>([]);
