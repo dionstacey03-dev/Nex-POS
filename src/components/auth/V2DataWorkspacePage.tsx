@@ -282,7 +282,7 @@ export const V2DataWorkspacePage: React.FC = () => {
           <input required type="number" min="0" step="0.001" value={editForm.minStockLevel} onChange={(event) => setEditForm({ ...editForm, minStockLevel: event.target.value })} placeholder="Minimum stock level" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
           <input maxLength={500} value={editForm.description} onChange={(event) => setEditForm({ ...editForm, description: event.target.value })} placeholder="Description" className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm" />
           <div className="flex gap-2 md:col-span-2"><button disabled={saving} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save changes'}</button><button type="button" onClick={() => setEditingProductId('')} className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm">Cancel</button></div>
-        </form>
+        </form>}
         <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 p-4">
             <div><h2 className="font-semibold">{labels[section]}</h2><p className="mt-1 text-xs text-slate-400">{rows.length.toLocaleString()} records shown</p></div>
