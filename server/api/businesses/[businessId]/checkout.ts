@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
-import { getPool } from '@/db';
-import { requireBusinessRole } from '@/api/_lib/authz';
-import { calculateTaxMinorUnits, formatMinorUnits, parseMoneyToMinorUnits } from '@/api/_lib/money';
+import { getPool } from '../../../../db/index.js';
+import { requireBusinessRole } from '../../../../api/_lib/authz.js';
+import { calculateTaxMinorUnits, formatMinorUnits, parseMoneyToMinorUnits } from '../../../../api/_lib/money.js';
 
 const productLineSchema = z.object({
   kind: z.literal('product'),
