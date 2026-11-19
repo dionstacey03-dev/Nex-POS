@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Database, LoaderCircle, LogOut, Package, Users, Receipt, Boxes } from 'lucide-react';
+import { ArrowLeft, Database, LoaderCircle, LogOut, Package, Users, Receipt, Boxes, Plus, ArrowDownUp } from 'lucide-react';
 import { authClient } from '../../lib/auth-client';
-import { getBusinesses, getWorkspace, type V2BusinessSummary, type V2WorkspaceSnapshot } from '../../services/v2Api';
+import { getBusinesses, getWorkspace, createProduct, adjustStock, type CreateProductRequest, type V2BusinessSummary, type V2WorkspaceSnapshot } from '../../services/v2Api';
 
 type Section = 'products' | 'customers' | 'sales' | 'inventory';
 type Row = Record<string, unknown>;
@@ -32,6 +32,12 @@ export const V2DataWorkspacePage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [productFormOpen, setProductFormOpen] = useState(false);
+  const [stockFormOpen, setStockFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [productForm, setProductForm] = useState({ name: '', sku: '', categoryId: '', locationId: '', purchasePrice: '0', sellingPrice: '0', minStockLevel: '0', description: '' });
+  const [stockForm, setStockForm] = useState({ productId: '', type: 'in' as 'in' | 'out' | 'adjustment', quantityChange: '1', reason: '' });
 
   useEffect(() => {
     if (!session?.user) return;
@@ -82,6 +88,81 @@ export const V2DataWorkspacePage: React.FC = () => {
     ));
   }, [snapshot, section, search]);
 
+
+  const categoryRows = snapshot ? asRows(snapshot.categories) : [];
+  const locationRows = snapshot ? asRows(snapshot.locations) : [];
+  const productRows = snapshot ? asRows(snapshot.products) : [];
+  const selectedBusiness = businesses.find((business) => business.id === businessId);
+  const canManageProducts = selectedBusiness ? selectedBusiness.role !== 'cashier' : false;
+  const refreshSnapshot = async () => {
+    if (!businessId) return;
+    setSnapshot(await getWorkspace(businessId));
+  };
+
+  const handleCreateProduct = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!businessId || !productForm.categoryId) {
+      setError('Choose a category before creating the product.');
+      return;
+    }
+    const payload: CreateProductRequest = {
+      name: productForm.name.trim(),
+      sku: productForm.sku.trim(),
+      categoryId: productForm.categoryId,
+      purchasePrice: Number(productForm.purchasePrice),
+      sellingPrice: Number(productForm.sellingPrice),
+      minStockLevel: Number(productForm.minStockLevel),
+      ...(productForm.description.trim() ? { description: productForm.description.trim() } : {}),
+      ...(productForm.locationId ? { locationId: productForm.locationId } : {}),
+    };
+    if (!payload.name || !payload.sku || !Number.isFinite(payload.purchasePrice) || !Number.isFinite(payload.sellingPrice) || !Number.isFinite(payload.minStockLevel)) {
+      setError('Enter a valid name, SKU, prices and minimum stock level.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      await createProduct(businessId, payload);
+      await refreshSnapshot();
+      setProductForm({ name: '', sku: '', categoryId: '', locationId: '', purchasePrice: '0', sellingPrice: '0', minStockLevel: '0', description: '' });
+      setProductFormOpen(false);
+      setNotice('Product created. Initial stock is zero; use stock adjustment to add opening stock.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not create product.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStockAdjustment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const quantityChange = Number(stockForm.quantityChange);
+    if (!businessId || !stockForm.productId || !stockForm.reason.trim() || !Number.isFinite(quantityChange) || quantityChange <= 0) {
+      setError('Select a product and enter a positive quantity and reason.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await adjustStock(businessId, stockForm.productId, {
+        requestId: crypto.randomUUID(),
+        type: stockForm.type,
+        quantityChange,
+        reason: stockForm.reason.trim(),
+      });
+      await refreshSnapshot();
+      setStockForm((current) => ({ ...current, reason: '' }));
+      setStockFormOpen(false);
+      setNotice('Stock updated successfully. New quantity: ' + result.stockQuantity + '.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Stock adjustment failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const columns = section === 'products'
     ? ['name', 'sku', 'categoryId', 'stockQuantity', 'sellingPrice', 'active']
     : section === 'customers'
@@ -114,6 +195,7 @@ export const V2DataWorkspacePage: React.FC = () => {
         </header>
 
         {error && <div role="alert" className="rounded-xl border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{error}</div>}
+        {notice && <div role="status" className="rounded-xl border border-emerald-900 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">{notice}</div>}
 
         <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4">
           <label className="text-xs font-medium text-slate-400" htmlFor="v2-business">Business workspace</label>
