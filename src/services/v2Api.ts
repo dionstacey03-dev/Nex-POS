@@ -430,3 +430,29 @@ export function updateEmployee(businessId: string, userId: string, payload: Upda
     { method: 'PATCH', body: JSON.stringify(payload) },
   );
 }
+
+export interface CreateEmployeeInvitationRequest {
+  email: string;
+  role: Exclude<UserRole, 'owner'>;
+}
+
+export interface EmployeeInvitation {
+  id: string;
+  email: string;
+  role: Exclude<UserRole, 'owner'>;
+  expiresAt: string;
+}
+
+export function createEmployeeInvitation(businessId: string, payload: CreateEmployeeInvitationRequest) {
+  return v2Api<{ invitation: EmployeeInvitation; invitationToken: string; delivery: 'manual' }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/invitations`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function acceptEmployeeInvitation(businessId: string, token: string) {
+  return v2Api<{ accepted: boolean; businessId: string; role: Exclude<UserRole, 'owner'> }>(
+    '/api/invitations/accept',
+    { method: 'POST', body: JSON.stringify({ businessId, token }) },
+  );
+}
