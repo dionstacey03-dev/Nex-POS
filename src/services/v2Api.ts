@@ -301,6 +301,50 @@ export function updateSupplier(businessId: string, supplierId: string, payload: 
   );
 }
 
+export interface V2InventoryLocation {
+  id: string;
+  businessId: string;
+  name: string;
+  address: string | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateInventoryLocationRequest {
+  name: string;
+  address?: string;
+  isDefault?: boolean;
+}
+
+export type UpdateInventoryLocationRequest = Partial<CreateInventoryLocationRequest> & {
+  address?: string | null;
+};
+
+export function getInventoryLocations(businessId: string) {
+  return v2Api<{ locations: V2InventoryLocation[] }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/locations`,
+  );
+}
+
+export function createInventoryLocation(businessId: string, payload: CreateInventoryLocationRequest) {
+  return v2Api<{ location: V2InventoryLocation }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/locations`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function updateInventoryLocation(
+  businessId: string,
+  locationId: string,
+  payload: UpdateInventoryLocationRequest,
+) {
+  return v2Api<{ location: V2InventoryLocation }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/locations/${encodeURIComponent(locationId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
+
 export function submitCheckout(businessId: string, payload: CheckoutRequest) {
   return v2Api<{ sale: Record<string, unknown>; alreadyProcessed?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/checkout`,
