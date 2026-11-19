@@ -90,6 +90,15 @@ export interface CreateProductRequest {
   imageUrl?: string;
 }
 
+export type UpdateProductRequest = Partial<Omit<CreateProductRequest, 'categoryId'>> & {
+  categoryId?: string | null;
+  locationId?: string | null;
+  description?: string | null;
+  barcode?: string | null;
+  imageUrl?: string | null;
+  active?: boolean;
+};
+
 export interface CheckoutRequest {
   requestId: string;
   items: Array<
@@ -132,6 +141,20 @@ export function createProduct(businessId: string, payload: CreateProductRequest)
   return v2Api<{ product: Product }>(
     `/api/businesses/${encodeURIComponent(businessId)}/products`,
     { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function updateProduct(businessId: string, productId: string, payload: UpdateProductRequest) {
+  return v2Api<{ product: Product }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/products/${encodeURIComponent(productId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
+
+export function archiveProduct(businessId: string, productId: string) {
+  return v2Api<{ deleted: boolean; archived?: boolean; alreadyInactive?: boolean }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/products/${encodeURIComponent(productId)}`,
+    { method: 'DELETE' },
   );
 }
 
