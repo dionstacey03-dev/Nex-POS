@@ -51,6 +51,11 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager', 'cashier']);
   if (!actor) return;
 
+  // Do not mark externally settled payments as completed until a real gateway exists.
+  if (parsed.data.paymentMethod !== 'cash') {
+    return res.status(501).json({ error: 'Card and external payments are unavailable until a payment gateway is configured. No sale was recorded.' });
+  }
+
   if (actor.role === 'cashier' && (parsed.data.discountValue > 0 || parsed.data.items.some((item) => item.kind === 'custom'))) return res.status(403).json({ error: 'Cashiers cannot apply discounts or create custom-price items.' });
   if (parsed.data.discountType === 'percent' && parsed.data.discountValue > 100) return res.status(400).json({ error: 'Percentage discount cannot exceed 100%.' });
   const requestFingerprint = createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
@@ -72,6 +77,14 @@ export default async function checkout(req: VercelRequest, res: VercelResponse) 
       }
       await client.query('COMMIT');
       return res.status(200).json({ sale: prior.rows[0], alreadyProcessed: true });
+    }
+
+    if (parsed.data.locationId) {
+      const location = await client.query('SELECT id FROM inventory_locations WHERE business_id = $1::uuid AND id = $2::uuid', [businessId, parsed.data.locationId]);
+      if (!location.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Location does not belong to this business.' });
+      }
     }
 
     const quantities = new Map<string, number>();
