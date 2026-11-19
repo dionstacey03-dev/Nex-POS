@@ -6,12 +6,12 @@ import { toNodeHandler } from 'better-auth/node';
 import { auth } from '../auth';
 import health from '../api/health';
 import businesses from '../api/businesses/index';
-import workspace from '../api/businesses/[businessId]/workspace';
-import checkout from '../api/businesses/[businessId]/checkout';
-import adjustStock from '../api/businesses/[businessId]/products/[productId]/stock-adjustments';
-import refundSale from '../api/businesses/[businessId]/sales/[saleId]/refund';
-import createPurchaseOrder from '../api/businesses/[businessId]/purchase-orders/index';
-import receivePurchase from '../api/businesses/[businessId]/purchase-orders/[purchaseOrderId]/receive';
+import workspace from '../server/api/businesses/[businessId]/workspace';
+import checkout from '../server/api/businesses/[businessId]/checkout';
+import adjustStock from '../server/api/businesses/[businessId]/products/[productId]/stock-adjustments';
+import refundSale from '../server/api/businesses/[businessId]/sales/[saleId]/refund';
+import createPurchaseOrder from '../server/api/businesses/[businessId]/purchase-orders/index';
+import receivePurchase from '../server/api/businesses/[businessId]/purchase-orders/[purchaseOrderId]/receive';
 
 process.env.BETTER_AUTH_URL ??= 'http://localhost:3000';
 
