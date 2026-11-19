@@ -31,7 +31,14 @@ export default async function workspace(req: VercelRequest, res: VercelResponse)
     ] = await Promise.all([
       client.query(
         `SELECT id,name,business_type AS "businessType",owner_user_id AS "ownerUid",currency,
-          tax_rate::float8 AS "taxRate",timezone,settings,created_at AS "createdAt",updated_at AS "updatedAt"
+          tax_rate::float8 AS "taxRate",timezone,
+          settings->>'logoUrl' AS "logoUrl",settings->>'address' AS address,
+          settings->>'phone' AS phone,settings->>'email' AS email,
+          settings->>'receiptHeader' AS "receiptHeader",settings->>'receiptFooter' AS "receiptFooter",
+          COALESCE((settings->>'lowStockAlertEnabled')::boolean,false) AS "lowStockAlertEnabled",
+          settings->>'lowStockAlertEmail' AS "lowStockAlertEmail",
+          settings->>'lowStockAlertTime' AS "lowStockAlertTime",
+          created_at AS "createdAt",updated_at AS "updatedAt"
          FROM businesses WHERE id = $1::uuid`,
         [businessId],
       ),
