@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
 import { getPool } from '../../../../../db';
@@ -26,6 +27,13 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
   const actor = await requireBusinessRole(req, res, businessId, ['owner', 'admin', 'manager']);
   if (!actor) return;
 
+  const normalizedItems = parsed.data.items
+    .map((item) => ({ purchaseOrderItemId: item.purchaseOrderItemId, quantity: Math.round(item.quantity * 1000) / 1000 }))
+    .sort((a, b) => a.purchaseOrderItemId.localeCompare(b.purchaseOrderItemId));
+  const requestFingerprint = createHash('sha256')
+    .update(JSON.stringify({ purchaseOrderId, items: normalizedItems }))
+    .digest('hex');
+
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -39,13 +47,13 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
       return res.status(404).json({ error: 'Purchase order not found.' });
     }
     const prior = await client.query(
-      'SELECT id,purchase_order_id,created_at FROM purchase_receipts WHERE business_id = $1::uuid AND request_id = $2',
+      'SELECT id,purchase_order_id,created_at,request_fingerprint FROM purchase_receipts WHERE business_id = $1::uuid AND request_id = $2',
       [businessId,parsed.data.requestId],
     );
     if (prior.rowCount) {
-      if (prior.rows[0].purchase_order_id !== purchaseOrderId) {
+      if (prior.rows[0].purchase_order_id !== purchaseOrderId || prior.rows[0].request_fingerprint !== requestFingerprint) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'This receiving request ID belongs to another purchase order.' });
+        return res.status(409).json({ error: 'This receiving request ID was already used with a different purchase order or quantity payload.' });
       }
       await client.query('COMMIT');
       return res.status(200).json({ receipt: prior.rows[0], alreadyReceived: true });
@@ -55,8 +63,8 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
       return res.status(409).json({ error: 'This purchase order cannot receive more stock.' });
     }
 
-    const itemIds = [...new Set(parsed.data.items.map((item) => item.purchaseOrderItemId))].sort();
-    if (itemIds.length !== parsed.data.items.length) {
+    const itemIds = normalizedItems.map((item) => item.purchaseOrderItemId);
+    if (itemIds.length !== new Set(itemIds).size) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Each purchase order line may appear only once per receipt.' });
     }
@@ -70,7 +78,7 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'A purchase order line was not found.' });
     }
-    const quantities = new Map(parsed.data.items.map((item) => [item.purchaseOrderItemId,Math.round(item.quantity * 1000) / 1000]));
+    const quantities = new Map(normalizedItems.map((item) => [item.purchaseOrderItemId,item.quantity]));
     for (const item of itemRows.rows) {
       const incoming = quantities.get(item.id)!;
       if (Number(item.quantity_received) + incoming > Number(item.quantity_ordered)) {
@@ -88,11 +96,15 @@ export default async function receivePurchase(req: VercelRequest, res: VercelRes
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'A product from this purchase order no longer exists.' });
     }
+    if (poResult.rows[0].location_id && productRows.rows.some((product) => product.location_id !== poResult.rows[0].location_id)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'The purchase order location does not match every product inventory location. Correct the product locations or create a matching purchase order.' });
+    }
 
     const receiptId = crypto.randomUUID();
     await client.query(
-      'INSERT INTO purchase_receipts (id,business_id,purchase_order_id,request_id,received_by_user_id) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5)',
-      [receiptId,businessId,purchaseOrderId,parsed.data.requestId,actor.userId],
+      'INSERT INTO purchase_receipts (id,business_id,purchase_order_id,request_id,request_fingerprint,received_by_user_id) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6)',
+      [receiptId,businessId,purchaseOrderId,parsed.data.requestId,requestFingerprint,actor.userId],
     );
     for (const item of itemRows.rows) {
       const incoming = quantities.get(item.id)!;
