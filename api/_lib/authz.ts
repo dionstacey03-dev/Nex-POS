@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { auth } from '../../auth';
-import { getPool } from '../../db';
+import { auth } from '../../auth.js';
+import { getPool } from '../../db/index.js';
 
 export type BusinessRole = 'owner' | 'admin' | 'manager' | 'cashier';
 
