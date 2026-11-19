@@ -90,7 +90,7 @@ export interface CreateProductRequest {
   imageUrl?: string;
 }
 
-export type UpdateProductRequest = Partial<Omit<CreateProductRequest, 'categoryId'>> & {
+export type UpdateProductRequest = Omit<Partial<CreateProductRequest>, 'categoryId' | 'locationId' | 'description' | 'barcode' | 'imageUrl'> & {
   categoryId?: string | null;
   locationId?: string | null;
   description?: string | null;
