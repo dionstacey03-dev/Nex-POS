@@ -1,6 +1,6 @@
 import { Pool } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-serverless';
-import * as authSchema from './schema/auth';
+import * as authSchema from './schema/auth.js';
 
 let pool: Pool | undefined;
 let database: ReturnType<typeof drizzle<typeof authSchema>> | undefined;
