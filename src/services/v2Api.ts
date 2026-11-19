@@ -119,18 +119,22 @@ export function submitCheckout(businessId: string, payload: CheckoutRequest) {
 export function adjustStock(
   businessId: string,
   productId: string,
-  payload: { type: 'in' | 'out' | 'adjustment'; quantityChange: number; reason: string; locationId?: string },
+  payload: { requestId: string; type: 'in' | 'out' | 'adjustment'; quantityChange: number; reason: string; locationId?: string },
 ) {
-  return v2Api<{ movement: Record<string, unknown> }>(
+  return v2Api<{ stockQuantity: number; alreadyApplied?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/products/${encodeURIComponent(productId)}/stock-adjustments`,
     { method: 'POST', body: JSON.stringify(payload) },
   );
 }
 
-export function refundSale(businessId: string, saleId: string, reason?: string) {
-  return v2Api<{ sale: Record<string, unknown> }>(
+export function refundSale(
+  businessId: string,
+  saleId: string,
+  payload: { requestId: string; reason: string; refundMethod: 'cash' | 'other'; paymentReference?: string },
+) {
+  return v2Api<{ refund?: Record<string, unknown>; alreadyRefunded?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/sales/${encodeURIComponent(saleId)}/refund`,
-    { method: 'POST', body: JSON.stringify({ reason }) },
+    { method: 'POST', body: JSON.stringify(payload) },
   );
 }
 
@@ -147,10 +151,10 @@ export function createPurchaseOrder(
 export function receivePurchaseOrder(
   businessId: string,
   purchaseOrderId: string,
-  items?: Array<{ productId: string; quantity: number }>,
+  payload: { requestId: string; items: Array<{ purchaseOrderItemId: string; quantity: number }> },
 ) {
-  return v2Api<{ purchaseOrder: Record<string, unknown> }>(
+  return v2Api<{ receipt: Record<string, unknown>; alreadyReceived?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/purchase-orders/${encodeURIComponent(purchaseOrderId)}/receive`,
-    { method: 'POST', body: JSON.stringify({ items }) },
+    { method: 'POST', body: JSON.stringify(payload) },
   );
 }
