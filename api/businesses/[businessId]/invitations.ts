@@ -41,7 +41,7 @@ export default async function createInvitation(req: VercelRequest, res: VercelRe
       return res.status(409).json({ error: 'This person is already an active member of the business.' });
     }
     await client.query(
-      'UPDATE business_invitations SET accepted_at=now() WHERE business_id=$1::uuid AND lower(email)=lower($2) AND accepted_at IS NULL AND expires_at>now()',
+      'UPDATE business_invitations SET expires_at=now() WHERE business_id=$1::uuid AND lower(email)=lower($2) AND accepted_at IS NULL AND expires_at>now()',
       [businessId,parsed.data.email],
     );
     const result = await client.query(
