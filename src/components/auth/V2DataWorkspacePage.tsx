@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Database, LoaderCircle, LogOut, Package, Users, Receipt, Boxes, Plus, ArrowDownUp } from 'lucide-react';
 import { authClient } from '../../lib/auth-client';
-import { getBusinesses, getWorkspace, createProduct, adjustStock, type CreateProductRequest, type V2BusinessSummary, type V2WorkspaceSnapshot } from '../../services/v2Api';
+import { getBusinesses, getWorkspace, createProduct, updateProduct, archiveProduct, adjustStock, type CreateProductRequest, type UpdateProductRequest, type V2BusinessSummary, type V2WorkspaceSnapshot } from '../../services/v2Api';
 
 type Section = 'products' | 'customers' | 'sales' | 'inventory';
 type Row = Record<string, unknown>;
@@ -38,6 +38,8 @@ export const V2DataWorkspacePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [productForm, setProductForm] = useState({ name: '', sku: '', categoryId: '', locationId: '', purchasePrice: '0', sellingPrice: '0', minStockLevel: '0', description: '' });
   const [stockForm, setStockForm] = useState({ productId: '', type: 'in' as 'in' | 'out' | 'adjustment', quantityChange: '1', reason: '' });
+  const [editingProductId, setEditingProductId] = useState('');
+  const [editForm, setEditForm] = useState({ name: '', sku: '', categoryId: '', locationId: '', purchasePrice: '0', sellingPrice: '0', minStockLevel: '0', description: '' });
 
   useEffect(() => {
     if (!session?.user) return;
@@ -135,6 +137,32 @@ export const V2DataWorkspacePage: React.FC = () => {
     }
   };
 
+  const beginEditProduct = (row: Row) => {
+    setEditingProductId(valueText(row.id, ''));
+    setEditForm({ name: valueText(row.name, ''), sku: valueText(row.sku, ''), categoryId: valueText(row.categoryId, ''), locationId: valueText(row.locationId, ''), purchasePrice: String(row.purchasePrice ?? 0), sellingPrice: String(row.sellingPrice ?? 0), minStockLevel: String(row.minStockLevel ?? 0), description: valueText(row.description, '') });
+    setError(''); setNotice('');
+  };
+
+  const handleUpdateProduct = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!businessId || !editingProductId) return;
+    const payload: UpdateProductRequest = { name: editForm.name.trim(), sku: editForm.sku.trim(), categoryId: editForm.categoryId, locationId: editForm.locationId || null, purchasePrice: Number(editForm.purchasePrice), sellingPrice: Number(editForm.sellingPrice), minStockLevel: Number(editForm.minStockLevel), description: editForm.description.trim() || null };
+    if (!payload.name || !payload.sku || !payload.categoryId || !Number.isFinite(payload.purchasePrice) || !Number.isFinite(payload.sellingPrice) || !Number.isFinite(payload.minStockLevel)) { setError('Check the product name, SKU, category and numeric fields.'); return; }
+    setSaving(true); setError(''); setNotice('');
+    try { await updateProduct(businessId, editingProductId, payload); await refreshSnapshot(); setEditingProductId(''); setNotice('Product details updated.'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update product.'); }
+    finally { setSaving(false); }
+  };
+
+  const handleArchiveProduct = async (row: Row) => {
+    const productId = valueText(row.id, '');
+    if (!businessId || !productId) return;
+    if (!window.confirm('Archive ' + valueText(row.name, 'this product') + '? Products with remaining stock cannot be archived. Historical records are retained.')) return;
+    setSaving(true); setError(''); setNotice('');
+    try { await archiveProduct(businessId, productId); await refreshSnapshot(); setNotice('Product archived. Historical records have been retained.'); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not archive product.'); }
+    finally { setSaving(false); }
+  };
   const handleStockAdjustment = async (event: React.FormEvent) => {
     event.preventDefault();
     const quantityChange = Number(stockForm.quantityChange);
