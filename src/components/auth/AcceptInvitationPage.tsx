@@ -76,7 +76,7 @@ export const AcceptInvitationPage: React.FC = () => {
         ) : isPending || busy && session?.user ? (
           <div className="py-8 text-center space-y-3"><LoaderCircle className="mx-auto h-7 w-7 animate-spin text-blue-400" /><p className="text-sm text-slate-300">Verifying your invitation…</p></div>
         ) : session?.user ? (
-          <div className="space-y-3"><h1 className="text-xl font-semibold">Accepting invitation</h1><p className="text-sm text-slate-300">Signed in as {session.user.email}. Your invitation is being checked.</p>{error && <p role="alert" className="text-sm text-rose-300">{error}</p>}<button onClick={() => authClient.signOut()} className="text-sm text-blue-300 hover:text-blue-200">Use a different account</button></div>
+          <div className="space-y-3"><h1 className="text-xl font-semibold">Accepting invitation</h1><p className="text-sm text-slate-300">Signed in as {session.user.email}. Your invitation is being checked.</p>{error && <p role="alert" className="text-sm text-rose-300">{error}</p>}<button onClick={() => authClient.signOut({})} className="text-sm text-blue-300 hover:text-blue-200">Use a different account</button></div>
         ) : (
           <>
             <div><h1 className="text-xl font-semibold">You’re invited to NexPOS</h1><p className="mt-1 text-sm text-slate-400">Sign in with the invited email address, or create an account using that email to join the workspace.</p></div>

@@ -219,7 +219,7 @@ export const V2DataWorkspacePage: React.FC = () => {
       <div className="mx-auto max-w-7xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div><a href="/v2" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" />Back to workspaces</a><h1 className="mt-3 text-2xl font-bold">V2 Data Workspace</h1><p className="mt-1 text-sm text-slate-400">V2 workspace records and validated product management actions.</p></div>
-          <button type="button" onClick={() => authClient.signOut()} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" />Sign out</button>
+          <button type="button" onClick={() => authClient.signOut({})} className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><LogOut className="h-4 w-4" />Sign out</button>
         </header>
 
         {error && <div role="alert" className="rounded-xl border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{error}</div>}

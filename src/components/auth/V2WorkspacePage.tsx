@@ -116,7 +116,7 @@ export const V2WorkspacePage: React.FC = () => {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-xl font-bold">N</div>
             <div><p className="text-xl font-bold tracking-tight">NexPOS V2</p><p className="text-xs text-slate-400">Better Auth · Neon PostgreSQL</p></div>
           </div>
-          {session?.user && <div className="flex items-center gap-3"><div className="text-right"><p className="text-sm font-medium">{session.user.name}</p><p className="text-xs text-slate-400">{session.user.email}</p></div><button type="button" onClick={() => authClient.signOut()} className="rounded-xl border border-slate-700 p-2 text-slate-300 hover:bg-slate-800" aria-label="Sign out"><LogOut className="h-4 w-4" /></button></div>}
+          {session?.user && <div className="flex items-center gap-3"><div className="text-right"><p className="text-sm font-medium">{session.user.name}</p><p className="text-xs text-slate-400">{session.user.email}</p></div><button type="button" onClick={() => authClient.signOut({})} className="rounded-xl border border-slate-700 p-2 text-slate-300 hover:bg-slate-800" aria-label="Sign out"><LogOut className="h-4 w-4" /></button></div>}
         </header>
 
         {error && <div role="alert" className="rounded-xl border border-rose-900 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{error}</div>}
