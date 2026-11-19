@@ -210,6 +210,50 @@ export function archiveCategory(businessId: string, categoryId: string) {
   );
 }
 
+export interface V2Customer {
+  id: string;
+  businessId: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateCustomerRequest {
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+}
+
+export type UpdateCustomerRequest = Partial<CreateCustomerRequest> & {
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+};
+
+export function getCustomers(businessId: string) {
+  return v2Api<{ customers: V2Customer[] }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/customers`,
+  );
+}
+
+export function createCustomer(businessId: string, payload: CreateCustomerRequest) {
+  return v2Api<{ customer: V2Customer }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/customers`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function updateCustomer(businessId: string, customerId: string, payload: UpdateCustomerRequest) {
+  return v2Api<{ customer: V2Customer }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/customers/${encodeURIComponent(customerId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
+
 export function submitCheckout(businessId: string, payload: CheckoutRequest) {
   return v2Api<{ sale: Record<string, unknown>; alreadyProcessed?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/checkout`,
