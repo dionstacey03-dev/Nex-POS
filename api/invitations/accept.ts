@@ -19,10 +19,10 @@ export default async function acceptInvitation(req: VercelRequest, res: VercelRe
     return res.status(401).json({ error: 'Sign in with the invited email address before accepting this invitation.' });
   }
   const tokenHash = createHash('sha256').update(parsed.data.token).digest('hex');
-  await getPool().query("SELECT set_config('app.business_id', $1, false)", [parsed.data.businessId]);
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
+    await client.query("SELECT set_config('app.business_id', $1, true)", [parsed.data.businessId]);
     const invitation = await client.query<{
       id: string; business_id: string; email: string; role: 'admin' | 'manager' | 'cashier';
     }>(
