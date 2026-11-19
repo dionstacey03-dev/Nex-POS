@@ -1,4 +1,4 @@
-import type { BusinessRole } from './authz';
+import type { BusinessRole } from './authz.js';
 
 export function getWorkspaceAccess(role: BusinessRole) {
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
