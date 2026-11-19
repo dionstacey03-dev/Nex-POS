@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { getDb } from './db';
+import { getDb } from './db/index.js';
 
 const baseURL = process.env.BETTER_AUTH_URL;
 const secret = process.env.BETTER_AUTH_SECRET;
