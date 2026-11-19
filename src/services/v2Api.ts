@@ -254,6 +254,53 @@ export function updateCustomer(businessId: string, customerId: string, payload: 
   );
 }
 
+export interface V2Supplier {
+  id: string;
+  businessId: string;
+  companyName: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSupplierRequest {
+  companyName: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+}
+
+export type UpdateSupplierRequest = Partial<CreateSupplierRequest> & {
+  contactPerson?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+};
+
+export function getSuppliers(businessId: string) {
+  return v2Api<{ suppliers: V2Supplier[] }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/suppliers`,
+  );
+}
+
+export function createSupplier(businessId: string, payload: CreateSupplierRequest) {
+  return v2Api<{ supplier: V2Supplier }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/suppliers`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
+export function updateSupplier(businessId: string, supplierId: string, payload: UpdateSupplierRequest) {
+  return v2Api<{ supplier: V2Supplier }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/suppliers/${encodeURIComponent(supplierId)}`,
+    { method: 'PATCH', body: JSON.stringify(payload) },
+  );
+}
+
 export function submitCheckout(businessId: string, payload: CheckoutRequest) {
   return v2Api<{ sale: Record<string, unknown>; alreadyProcessed?: boolean }>(
     `/api/businesses/${encodeURIComponent(businessId)}/checkout`,
