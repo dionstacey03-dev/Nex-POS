@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { auth } from '../../auth';
-import { getPool } from '../../db';
-import { requestHeaders } from '../_lib/authz';
+import { auth } from '../../auth.js';
+import { getPool } from '../../db/index.js';
+import { requestHeaders } from '../_lib/authz.js';
 
 const schema = z.object({ businessId: z.string().uuid(), token: z.string().min(32).max(128) }).strict();
 
