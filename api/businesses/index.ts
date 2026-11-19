@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
-import { auth } from '../../auth';
-import { getPool } from '../../db';
-import { requestHeaders } from '../_lib/authz';
+import { auth } from '../../auth.js';
+import { getPool } from '../../db/index.js';
+import { requestHeaders } from '../_lib/authz.js';
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(120),
