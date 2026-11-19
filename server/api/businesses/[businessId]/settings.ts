@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
-import { getPool } from '@/db';
-import { requireBusinessRole } from '@/api/_lib/authz';
+import { getPool } from '../../../../db/index.js';
+import { requireBusinessRole } from '../../../../api/_lib/authz.js';
 
 const settingsSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
