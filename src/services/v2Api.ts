@@ -1,4 +1,4 @@
-import type { Business, UserRole } from '../types/nexpos';
+import type { Business, Product, UserRole } from '../types/nexpos';
 
 export class ApiError extends Error {
   constructor(
@@ -77,6 +77,19 @@ export interface CreateBusinessRequest {
   timezone?: string;
 }
 
+export interface CreateProductRequest {
+  name: string;
+  description?: string;
+  categoryId: string;
+  locationId?: string;
+  sku: string;
+  barcode?: string;
+  purchasePrice: number;
+  sellingPrice: number;
+  minStockLevel?: number;
+  imageUrl?: string;
+}
+
 export interface CheckoutRequest {
   requestId: string;
   items: Array<
@@ -106,6 +119,19 @@ export function createBusiness(payload: CreateBusinessRequest) {
 export function getWorkspace(businessId: string) {
   return v2Api<V2WorkspaceSnapshot>(
     `/api/businesses/${encodeURIComponent(businessId)}/workspace`,
+  );
+}
+
+export function getProducts(businessId: string) {
+  return v2Api<{ products: Product[] }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/products`,
+  );
+}
+
+export function createProduct(businessId: string, payload: CreateProductRequest) {
+  return v2Api<{ product: Product }>(
+    `/api/businesses/${encodeURIComponent(businessId)}/products`,
+    { method: 'POST', body: JSON.stringify(payload) },
   );
 }
 
