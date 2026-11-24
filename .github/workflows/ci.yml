@@ -43,6 +43,6 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Install Firestore rules test dependencies
-        run: npm install --no-save --package-lock=false --legacy-peer-deps firebase@^13.3.0 @firebase/rules-unit-testing@6.0.0 firebase-tools
+        run: npm install --prefix tests --no-save --package-lock=false --legacy-peer-deps firebase@^13.3.0 @firebase/rules-unit-testing@6.0.0 firebase-tools
       - name: Run Firestore Emulator security tests
-        run: npx firebase-tools --config firebase.test.json emulators:exec --only firestore --project demo-nexpos "node tests/firestore.rules.test.mjs"
+        run: tests/node_modules/.bin/firebase --config firebase.test.json emulators:exec --only firestore --project demo-nexpos "node tests/firestore.rules.test.mjs"
