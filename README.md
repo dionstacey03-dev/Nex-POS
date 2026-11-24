@@ -46,14 +46,11 @@ NexPOS is a universal point-of-sale and business-management application built fo
 
    With npm, use `npm install`.
 
-3. Copy `.env.example` to `.env`. Configure the Firebase service account for trusted POS operations and the Gemini key if AI forecasting is required:
+3. Copy `.env.example` to `.env` and configure the Gemini key if AI forecasting is required.
 
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key
-   FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
-   ```
+   **Cloud Run (recommended):** attach a dedicated runtime service account to the service and grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Cloud Datastore User role). The trusted transaction API uses the Cloud Run metadata identity automatically, so no long-lived JSON key is required.
 
-   `FIREBASE_SERVICE_ACCOUNT_JSON` must contain the complete one-line service-account JSON for the same Firebase project. Create a dedicated service account for the same Firebase project, grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Cloud Datastore User role), create a JSON key, and store the complete JSON only in `.env` or the hosting provider's server-side secret manager. In Google AI Studio, add it as a server secret named `FIREBASE_SERVICE_ACCOUNT_JSON` if that runtime supports server secrets. Never expose it through a `VITE_` variable. Never commit `.env`, service-account files, private keys, or other credentials.
+   **Local development:** if you need to test trusted transaction endpoints locally, set `FIREBASE_SERVICE_ACCOUNT_JSON` to the complete one-line service-account JSON for the same Firebase project. Keep it only in your local `.env` or a server-side secret manager. Never expose it through a `VITE_` variable or commit it to Git.
 
 4. Start the application:
 
