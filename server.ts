@@ -314,8 +314,26 @@ async function secureCheckout(req: Request, res: Response): Promise<void> {
     }
     for (const c of custom) { const line = round2(c.price*c.quantity); subtotal += line; saleItems.push({ productId: makeId('custom'), name:c.title, sku:'CUSTOM', quantity:c.quantity, unitPrice:c.price, costPrice:0, lineTotal:line, isCustom:true }); }
     subtotal = round2(subtotal);
-    const discountType = body.discountType === 'percent' ? 'percent' : 'fixed', discountValue = Number(body.discountValue || 0);
-    if (!Number.isFinite(discountValue) || discountValue < 0 || discountValue > (discountType === 'percent' ? 100 : subtotal)) { res.status(400).json({ error:'Invalid discount.' }); return; }
+    const requestedDiscountType = body.discountType ?? 'fixed';
+    if (requestedDiscountType !== 'fixed' && requestedDiscountType !== 'percent') {
+      res.status(400).json({ error: 'Invalid discount type.' });
+      return;
+    }
+    const discountType = requestedDiscountType;
+    const rawDiscountValue = body.discountValue ?? 0;
+    if (typeof rawDiscountValue !== 'number' || !Number.isFinite(rawDiscountValue) || rawDiscountValue < 0) {
+      res.status(400).json({ error: 'Invalid discount.' });
+      return;
+    }
+    const discountValue = rawDiscountValue;
+    if (discountValue > 0 && !['owner', 'admin', 'manager'].includes(actor.role)) {
+      res.status(403).json({ error: 'Only a manager or administrator can apply a discount.' });
+      return;
+    }
+    if (discountValue > (discountType === 'percent' ? 100 : subtotal)) {
+      res.status(400).json({ error: 'Invalid discount.' });
+      return;
+    }
     const discountAmount = round2(discountType === 'percent' ? subtotal*discountValue/100 : discountValue), taxable = round2(subtotal-discountAmount);
     const taxRate = Math.max(0,Math.min(100,Number(business.data.taxRate || 0))), taxAmount = round2(taxable*taxRate/100), grandTotal = round2(taxable+taxAmount);
     const amountTendered = Number(body.amountTendered ?? grandTotal);
