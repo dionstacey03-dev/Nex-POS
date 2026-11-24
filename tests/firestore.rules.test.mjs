@@ -13,7 +13,7 @@ function context(uid) {
 
 async function seed() {
   await testEnv.withSecurityRulesDisabled(async (admin) => {
-    const db = admin.firestore(databaseId);
+    const db = admin.firestore();
     await setDoc(doc(db, 'businesses/biz1'), {
       id: 'biz1', name: 'Test Business', businessType: 'retail', ownerUid: 'owner1',
       currency: 'LKR', taxRate: 0, createdAt: now, updatedAt: now,
