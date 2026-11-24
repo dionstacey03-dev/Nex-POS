@@ -336,17 +336,22 @@ async function secureCheckout(req: Request, res: Response): Promise<void> {
         custom.push({ title, quantity: item.quantity, price: round2(price) });
       } else {
         if (!validDocId(item.productId)) { res.status(400).json({ error: 'Invalid product.' }); return; }
-        quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
+        const combinedQuantity = (quantities.get(item.productId) || 0) + item.quantity;
+        if (combinedQuantity > 100000) { res.status(400).json({ error: 'Combined product quantity exceeds the supported limit.' }); return; }
+        quantities.set(item.productId, combinedQuantity);
       }
     }
     const plans: any[] = [], saleItems: any[] = []; let subtotal = 0;
     for (const [pid, qty] of quantities) {
       const p = await serverRead('businesses/' + biz + '/products/' + pid);
       if (!p || p.data.active !== true) { res.status(409).json({ error: 'A selected product is unavailable.' }); return; }
-      const stock = Number(p.data.stockQuantity || 0);
+      const stock = Number(p.data.stockQuantity ?? 0);
+      const unitPrice = Number(p.data.sellingPrice);
+      const costPrice = Number(p.data.purchasePrice ?? 0);
+      if (!Number.isFinite(stock) || stock < 0 || !Number.isFinite(unitPrice) || unitPrice < 0 || !Number.isFinite(costPrice) || costPrice < 0) { res.status(409).json({ error: 'A selected product has invalid inventory or price data. Contact your administrator.' }); return; }
       if (stock < qty) { res.status(409).json({ error: 'Insufficient stock for ' + p.data.name + '. Available: ' + stock }); return; }
-      const unit = round2(Number(p.data.sellingPrice)), line = round2(unit * qty); subtotal += line;
-      saleItems.push({ productId: pid, name: String(p.data.name).slice(0,140), sku: String(p.data.sku || '').slice(0,64), quantity: qty, unitPrice: unit, costPrice: round2(Number(p.data.purchasePrice || 0)), lineTotal: line });
+      const unit = round2(unitPrice), line = round2(unit * qty); subtotal += line;
+      saleItems.push({ productId: pid, name: String(p.data.name).slice(0,140), sku: String(p.data.sku || '').slice(0,64), quantity: qty, unitPrice: unit, costPrice: round2(costPrice), lineTotal: line });
       plans.push({ pid, p, qty, next: stock - qty });
     }
     for (const c of custom) { const line = round2(c.price*c.quantity); subtotal += line; saleItems.push({ productId: makeId('custom'), name:c.title, sku:'CUSTOM', quantity:c.quantity, unitPrice:c.price, costPrice:0, lineTotal:line, isCustom:true }); }
@@ -372,7 +377,9 @@ async function secureCheckout(req: Request, res: Response): Promise<void> {
       return;
     }
     const discountAmount = round2(discountType === 'percent' ? subtotal*discountValue/100 : discountValue), taxable = round2(subtotal-discountAmount);
-    const taxRate = Math.max(0,Math.min(100,Number(business.data.taxRate || 0))), taxAmount = round2(taxable*taxRate/100), grandTotal = round2(taxable+taxAmount);
+    const taxRate = Number(business.data.taxRate ?? 0);
+    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) { res.status(409).json({ error: 'Business tax configuration is invalid. Contact your administrator.' }); return; }
+    const taxAmount = round2(taxable*taxRate/100), grandTotal = round2(taxable+taxAmount);
     const amountTendered = Number(body.amountTendered ?? grandTotal);
     if (!Number.isFinite(amountTendered) || amountTendered < 0 || (body.paymentMethod === 'cash' && amountTendered < grandTotal)) { res.status(400).json({ error:'Insufficient payment amount.' }); return; }
     let customer: any = null; const customerId = body.customerId ? String(body.customerId) : '';
@@ -397,7 +404,7 @@ async function secureStockAdjust(req: Request, res: Response): Promise<void> {
     const priorMovement=await serverRead('businesses/'+biz+'/stockMovements/'+body.requestId);
     if(priorMovement){if(priorMovement.data.actorUid!==actor.uid||priorMovement.data.productId!==pid){res.status(409).json({error:'Adjustment request ID is already in use.'});return;}res.json({stockQuantity:priorMovement.data.newStock,alreadyApplied:true});return;}
     const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(404).json({error:'Product not found.'});return;}
-    const prev=Number(p.data.stockQuantity||0),delta=body.type==='in'?body.quantityChange:body.type==='out'?-body.quantityChange:body.quantityChange-prev,next=prev+delta;
+    const prev=Number(p.data.stockQuantity??0);if(!Number.isFinite(prev)||prev<0){res.status(409).json({error:'Product stock data is invalid. Contact your administrator.'});return;}const delta=body.type==='in'?body.quantityChange:body.type==='out'?-body.quantityChange:body.quantityChange-prev,next=prev+delta;
     if(next<0){res.status(409).json({error:'Insufficient stock.'});return;}const now=new Date().toISOString(),mid=body.requestId;
     await serverCommit([fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},p.updateTime),fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:pid,productName:String(p.data.name).slice(0,140),type:body.type,quantityDelta:delta,previousStock:prev,newStock:next,reason:String(body.reason).trim().slice(0,240),actorUid:actor.uid,actorName:actor.name,createdAt:now})]);
     res.json({stockQuantity:next});
@@ -408,7 +415,7 @@ async function secureRefund(req: Request, res: Response): Promise<void> {
   const actor=await authorizeBusiness(req,res,biz,['owner','admin','manager']);if(!actor)return;
   try{const sale=await serverRead('businesses/'+biz+'/sales/'+sid);if(!sale){res.status(404).json({error:'Sale not found.'});return;}if(sale.data.status==='refunded'){res.json({refunded:true,alreadyRefunded:true});return;}if(sale.data.status!=='completed'){res.status(409).json({error:'Sale is not refundable.'});return;}
     const grouped=new Map<string,number>();for(const i of sale.data.items||[])if(!i.isCustom)grouped.set(i.productId,(grouped.get(i.productId)||0)+Number(i.quantity));
-    const writes:FSWrite[]=[];for(const [pid,qty] of grouped){const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(409).json({error:'A sale product no longer exists.'});return;}const prev=Number(p.data.stockQuantity||0),next=prev+qty,now=new Date().toISOString(),mid=makeId('mov');
+    const writes:FSWrite[]=[];for(const [pid,qty] of grouped){const p=await serverRead('businesses/'+biz+'/products/'+pid);if(!p){res.status(409).json({error:'A sale product no longer exists.'});return;}const prev=Number(p.data.stockQuantity??0);if(!Number.isFinite(prev)||prev<0){res.status(409).json({error:'Product stock data is invalid. Contact your administrator.'});return;}const next=prev+qty,now=new Date().toISOString(),mid=makeId('mov');
       writes.push(fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},p.updateTime),fsCreate('businesses/'+biz+'/stockMovements/'+mid,{id:mid,businessId:biz,productId:pid,productName:String(p.data.name).slice(0,140),type:'in',quantityDelta:qty,previousStock:prev,newStock:next,reason:'Refund '+sale.data.receiptNumber,referenceId:sid,actorUid:actor.uid,actorName:actor.name,createdAt:now}));}
     if(sale.data.customerId){const c=await serverRead('businesses/'+biz+'/customers/'+sale.data.customerId);if(c)writes.push(fsUpdate('businesses/'+biz+'/customers/'+sale.data.customerId,{totalSpent:round2(Math.max(0,Number(c.data.totalSpent||0)-Number(sale.data.grandTotal||0))),ordersCount:Math.max(0,Number(c.data.ordersCount||0)-1),updatedAt:new Date().toISOString()},c.updateTime));}
     writes.push(fsUpdate('businesses/'+biz+'/sales/'+sid,{status:'refunded'},sale.updateTime));await serverCommit(writes);res.json({refunded:true});
@@ -434,7 +441,7 @@ async function secureReceivePurchase(req: Request, res: Response): Promise<void>
     for(const [pid,qty] of grouped){
       const product=await serverRead('businesses/'+biz+'/products/'+pid);
       if(!product){res.status(409).json({error:'A purchase order product no longer exists.'});return;}
-      const previous=Number(product.data.stockQuantity||0),next=previous+qty,now=new Date().toISOString(),mid=makeId('mov');
+      const previous=Number(product.data.stockQuantity??0);if(!Number.isFinite(previous)||previous<0){res.status(409).json({error:'Product stock data is invalid. Contact your administrator.'});return;}const next=previous+qty,now=new Date().toISOString(),mid=makeId('mov');
       writes.push(fsUpdate('businesses/'+biz+'/products/'+pid,{stockQuantity:next,updatedAt:now},product.updateTime));
       writes.push(fsCreate('businesses/'+biz+'/stockMovements/'+mid,{
         id:mid,businessId:biz,productId:pid,productName:String(product.data.name).slice(0,140),
