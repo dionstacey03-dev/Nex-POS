@@ -54,11 +54,18 @@ export async function testFirestoreConnection(): Promise<boolean> {
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-      return false;
-    }
-    return true;
+    // The connection probe intentionally reads a path that may be denied by
+    // the default-deny Firestore rules. PERMISSION_DENIED still proves that
+    // the client reached Firestore; transport/configuration failures do not.
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : '';
+
+    if (code === 'permission-denied') return true;
+
+    console.error('Firestore connection check failed:', code || 'unknown error');
+    return false;
   }
 }
 
@@ -67,26 +74,26 @@ export function handleFirestoreError(
   operationType: OperationType,
   path: string | null
 ): never {
-  const currentUser = auth?.currentUser;
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: currentUser?.uid ?? null,
-      email: currentUser?.email ?? null,
-      emailVerified: currentUser?.emailVerified ?? null,
-      isAnonymous: currentUser?.isAnonymous ?? null,
-      tenantId: currentUser?.tenantId ?? null,
-      providerInfo:
-        currentUser?.providerData?.map((provider) => ({
-          providerId: provider.providerId,
-          email: provider.email,
-        })) ?? [],
-    },
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : 'unknown';
+
+  // Do not write user email addresses, auth identifiers, or raw backend
+  // payloads to browser logs. Keep enough context to diagnose rule failures.
+  console.error('Firestore operation failed:', {
+    code,
     operationType,
     path,
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  });
+
+  const message =
+    code === 'permission-denied'
+      ? 'You do not have permission to perform this action.'
+      : code === 'unavailable' || code === 'deadline-exceeded'
+        ? 'The database is temporarily unavailable. Check your connection and try again.'
+        : 'The database operation failed. Please try again or contact your administrator.';
+  throw new Error(message);
 }
 
 export async function signInWithGooglePopup() {

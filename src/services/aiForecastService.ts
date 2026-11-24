@@ -1,4 +1,5 @@
 import { Category, Product, PurchaseOrder, Sale } from '../types/nexpos';
+import { auth } from '../lib/firebase';
 import { roundMoney } from '../utils/currency';
 import { calculateInventoryProjections } from '../utils/inventoryProjection';
 
@@ -246,11 +247,21 @@ export async function fetchAiStockForecast(
   const topSnapshots = snapshots.slice(0, 40);
   const snapshotById = new Map(topSnapshots.map((s) => [s.product.id, s]));
 
+  const currentUser = auth?.currentUser;
+  if (!currentUser) {
+    throw new Error('Sign in to your Firebase business workspace to use AI forecasting.');
+  }
+  const idToken = await currentUser.getIdToken();
+
   const response = await fetch('/api/ai/stock-forecast', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
     signal: params.signal,
     body: JSON.stringify({
+      businessId: params.businessId,
       businessName: params.businessName,
       businessType: params.businessType,
       currency: params.currency,
