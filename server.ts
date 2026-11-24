@@ -381,7 +381,7 @@ async function secureCheckout(req: Request, res: Response): Promise<void> {
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) { res.status(409).json({ error: 'Business tax configuration is invalid. Contact your administrator.' }); return; }
     const taxAmount = round2(taxable*taxRate/100), grandTotal = round2(taxable+taxAmount);
     const amountTendered = Number(body.amountTendered ?? grandTotal);
-    if (!Number.isFinite(amountTendered) || amountTendered < 0 || (body.paymentMethod === 'cash' && amountTendered < grandTotal)) { res.status(400).json({ error:'Insufficient payment amount.' }); return; }
+    if (!Number.isFinite(amountTendered) || amountTendered < 0 || (body.paymentMethod === 'cash' ? amountTendered < grandTotal : amountTendered !== grandTotal)) { res.status(400).json({ error:'Tender must cover the full total; card and other payments must match the total exactly.' }); return; }
     let customer: any = null; const customerId = body.customerId ? String(body.customerId) : '';
     if (customerId) { if (!validDocId(customerId)) { res.status(400).json({error:'Invalid customer.'}); return; } customer = await serverRead('businesses/'+biz+'/customers/'+customerId); if (!customer) {res.status(404).json({error:'Customer not found.'});return;} }
     const id=requestId, now=new Date().toISOString(), receipt='NX-'+new Date().getFullYear()+'-'+id.slice(-6).toUpperCase();
