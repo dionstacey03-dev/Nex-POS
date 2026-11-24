@@ -4,5 +4,13 @@
       "database": "ai-studio-13aeaff3-6798-41a6-a62d-e5b290d08731",
       "rules": "firestore.rules"
     }
-  ]
+  ],
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
 }
