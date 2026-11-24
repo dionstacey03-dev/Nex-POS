@@ -48,7 +48,7 @@ NexPOS is a universal point-of-sale and business-management application built fo
 
 3. Copy `.env.example` to `.env` and configure the Gemini key if AI forecasting is required.
 
-   **Cloud Run (recommended):** attach a dedicated runtime service account to the service and grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Cloud Datastore User role). The trusted transaction API uses the Cloud Run metadata identity automatically, so no long-lived JSON key is required.
+   **Cloud Run (recommended):** attach a dedicated runtime service account to the service and grant it the Firestore/Datastore permissions needed to read and commit documents (for example, the Cloud Datastore User role). The trusted transaction API uses the Cloud Run metadata identity automatically, so no long-lived JSON key is required. The server must run as a Cloud Run service (or another trusted Node server with an equivalent service identity); a static Vite deployment does not run `server.ts`.
 
    **Local development:** if you need to test trusted transaction endpoints locally, set `FIREBASE_SERVICE_ACCOUNT_JSON` to the complete one-line service-account JSON for the same Firebase project. Keep it only in your local `.env` or a server-side secret manager. Never expose it through a `VITE_` variable or commit it to Git.
 
@@ -96,7 +96,7 @@ Firebase web API keys identify a Firebase project; they are not service-account 
 
 The Express server exposes authenticated endpoints for checkout, refunds, stock adjustments, and purchase receiving. Each request must include a Firebase ID token. The server verifies the token and active employee role, then uses the server-only service account to read authoritative prices/stock and commit related records atomically with Firestore document-version preconditions. This prevents browser clients from directly changing the sales ledger, stock ledger, inventory quantities, or customer financial totals.
 
-The trusted endpoints require `FIREBASE_SERVICE_ACCOUNT_JSON`. If this secret is absent or invalid, these operations fail closed; demo mode remains available. Deploy the updated `firestore.rules` to the exact configured database before testing cloud mode. Never use a broad owner key in client code.
+On Cloud Run, the trusted endpoints use the service's attached runtime identity through Application Default Credentials; `FIREBASE_SERVICE_ACCOUNT_JSON` is only a local-development fallback. Grant the dedicated runtime service account the minimum Firestore permissions it needs (for example, `roles/datastore.user`) and set the correct Firebase project/database configuration. If local development needs the JSON fallback, keep it in `.env` only. The server fails closed when it cannot obtain a valid identity. Deploy the backend and verify the authenticated transaction endpoints in staging before deploying the restrictive Firestore rules to the configured named database; otherwise the browser's old direct-write paths will be denied. Never use a broad owner key in client code.
 
 ## AI stock forecasting
 
@@ -107,10 +107,10 @@ AI output is advisory. Verify purchase quantities and supplier lead times before
 ## Security and production checklist
 
 - [ ] Replace the Firebase web app configuration with the intended project configuration.
-- [ ] Deploy and test Firestore rules with the Firebase Emulator Suite and adversarial test cases.
+- [ ] Run the Firestore rules emulator suite on the hardened PR before merging, then deploy the rules to the configured named database.
 - [ ] Configure verified authentication and authorized domains.
 - [x] AI stock-forecast endpoint verifies Firebase ID tokens and checks active membership in the requested business workspace.
-- [ ] Add a distributed edge/API-gateway quota, monitoring, and cost limits for Gemini usage; the in-process limiter is only a secondary safeguard.
+- [ ] Configure Cloud Armor/API Gateway rate limits and monitoring for the Cloud Run service; the in-process limiter is only a secondary safeguard.
 - [ ] Configure `TRUST_PROXY=1` only when the app is deployed behind one trusted reverse proxy.
 - [ ] Configure HTTPS, environment secrets, backups, and production monitoring.
 - [x] Browser clients cannot directly write sales, stock movements, stock quantities, or customer financial aggregates; trusted server endpoints handle checkout, refunds, purchase receiving, and stock adjustments.
