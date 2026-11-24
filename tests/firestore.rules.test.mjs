@@ -4,12 +4,11 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { Timestamp, doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const projectId = 'demo-nexpos';
-const databaseId = 'ai-studio-13aeaff3-6798-41a6-a62d-e5b290d08731';
 let testEnv;
 const now = Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z'));
 
 function context(uid) {
-  return testEnv.authenticatedContext(uid, { email_verified: true }).firestore(databaseId);
+  return testEnv.authenticatedContext(uid, { email_verified: true }).firestore();
 }
 
 async function seed() {
