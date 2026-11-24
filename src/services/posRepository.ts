@@ -15,7 +15,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { User } from 'firebase/auth';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { createDemoDatasets } from '../data/demoData';
 import {
   Business,
@@ -34,6 +34,21 @@ import {
   UserRole,
 } from '../types/nexpos';
 import { roundMoney } from '../utils/currency';
+
+
+async function callTrustedPosApi<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+  const user = auth?.currentUser;
+  if (!user) throw new Error('Sign in to your Firebase business workspace to continue.');
+  const token = await user.getIdToken();
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({})) as { error?: string } & T;
+  if (!response.ok) throw new Error(result.error || 'The secure transaction could not be completed.');
+  return result;
+}
 
 export function generateId(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 8);
@@ -813,147 +828,28 @@ export async function saveLocationInFirestore(
 export async function executeSaleTransactionInFirestore(
   businessId: string,
   sale: Omit<Sale, 'createdAt'>
-): Promise<void> {
-  if (!db) return;
-  const salePath = `businesses/${businessId}/sales/${sale.id}`;
-  try {
-    await runTransaction(db, async (tx) => {
-      const inventoriedItems = sale.items.filter((item) => !item.isCustom);
-
-      const productSnapshots = await Promise.all(
-        inventoriedItems.map((item) =>
-          tx.get(doc(db!, 'businesses', businessId, 'products', item.productId))
-        )
-      );
-
-      let customerSnap = null;
-      if (sale.customerId) {
-        customerSnap = await tx.get(
-          doc(db!, 'businesses', businessId, 'customers', sale.customerId)
-        );
-      }
-
-      // Verify stock availability for inventoried items first
-      const stockUpdates: Array<{
-        ref: ReturnType<typeof doc>;
-        productId: string;
-        productName: string;
-        previousStock: number;
-        newStock: number;
-        delta: number;
-        locationId?: string;
-      }> = [];
-
-      for (let i = 0; i < inventoriedItems.length; i++) {
-        const item = inventoriedItems[i];
-        const snap = productSnapshots[i];
-        if (!snap.exists()) {
-          throw new Error(`Product "${item.name}" no longer exists.`);
-        }
-        const currentStock = Number(snap.data().stockQuantity ?? 0);
-        if (currentStock < item.quantity) {
-          throw new Error(
-            `Insufficient stock for "${item.name}". Available: ${currentStock}, requested: ${item.quantity}.`
-          );
-        }
-        stockUpdates.push({
-          ref: snap.ref,
-          productId: item.productId,
-          productName: item.name,
-          previousStock: currentStock,
-          newStock: currentStock - item.quantity,
-          delta: -item.quantity,
-          locationId: snap.data().locationId ? String(snap.data().locationId) : sale.locationId,
-        });
-      }
-
-      // 1. Write Sale record
-      tx.set(
-        doc(db!, 'businesses', businessId, 'sales', sale.id),
-        omitUndefined({
-          id: sale.id,
-          businessId,
-          receiptNumber: sale.receiptNumber,
-          customerId: cleanStr(sale.customerId, 128),
-          customerName: cleanStr(sale.customerName, 120),
-          cashierUid: sale.cashierUid,
-          cashierName: sale.cashierName.slice(0, 120),
-          locationId: cleanStr(sale.locationId, 128),
-          items: sale.items.map((item) =>
-            omitUndefined({
-              productId: item.productId,
-              name: item.name.slice(0, FIELD_LIMITS.PRODUCT_NAME_MAX),
-              sku: item.sku.slice(0, FIELD_LIMITS.SKU_MAX),
-              quantity: Math.max(1, Math.floor(item.quantity)),
-              unitPrice: roundMoney(item.unitPrice),
-              costPrice: Math.max(0, roundMoney(item.costPrice)),
-              lineTotal: roundMoney(item.lineTotal),
-              isCustom: item.isCustom ? true : undefined,
-            })
-          ),
-          subtotal: roundMoney(sale.subtotal),
-          discountType: sale.discountType,
-          discountValue: sale.discountValue,
-          discountAmount: roundMoney(sale.discountAmount),
-          taxRate: sale.taxRate,
-          taxAmount: roundMoney(sale.taxAmount),
-          grandTotal: roundMoney(sale.grandTotal),
-          paymentMethod: sale.paymentMethod,
-          amountTendered: roundMoney(sale.amountTendered),
-          changeDue: roundMoney(sale.changeDue),
-          paymentReference: cleanStr(sale.paymentReference, 100),
-          status: 'completed',
-          createdAt: serverTimestamp(),
-        })
-      );
-
-      // 2. Decrement Product stock + write auditable StockMovement
-      for (const upd of stockUpdates) {
-        tx.update(upd.ref, {
-          stockQuantity: upd.newStock,
-          updatedAt: serverTimestamp(),
-        });
-
-        const movId = generateId('mov');
-        tx.set(
-          doc(db!, 'businesses', businessId, 'stockMovements', movId),
-          omitUndefined({
-            id: movId,
-            businessId,
-            productId: upd.productId,
-            productName: upd.productName.slice(0, 140),
-            locationId: cleanStr(upd.locationId, 128),
-            type: 'sale',
-            quantityDelta: upd.delta,
-            previousStock: upd.previousStock,
-            newStock: upd.newStock,
-            reason: `POS Sale ${sale.receiptNumber}`.slice(0, 240),
-            referenceId: sale.id,
-            actorUid: sale.cashierUid,
-            actorName: sale.cashierName.slice(0, 120),
-            createdAt: serverTimestamp(),
-          })
-        );
-      }
-
-      // 3. Update Customer totals if selected
-      if (customerSnap && customerSnap.exists()) {
-        const prevSpent = Number(customerSnap.data().totalSpent ?? 0);
-        const prevOrders = Number(customerSnap.data().ordersCount ?? 0);
-        tx.update(customerSnap.ref, {
-          totalSpent: roundMoney(prevSpent + sale.grandTotal),
-          ordersCount: prevOrders + 1,
-          lastPurchaseAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      }
-    });
-  } catch (error) {
-    if (error instanceof Error && (error.message.includes('Insufficient stock') || error.message.includes('no longer exists'))) {
-      throw error;
+): Promise<Sale> {
+  const result = await callTrustedPosApi<{ sale: Sale }>(
+    '/api/businesses/' + encodeURIComponent(businessId) + '/checkout',
+    {
+      requestId: sale.id,
+      items: sale.items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        isCustom: item.isCustom === true,
+        name: item.name,
+        unitPrice: item.unitPrice,
+      })),
+      customerId: sale.customerId,
+      locationId: sale.locationId,
+      discountType: sale.discountType,
+      discountValue: sale.discountValue,
+      paymentMethod: sale.paymentMethod,
+      amountTendered: sale.amountTendered,
+      paymentReference: sale.paymentReference,
     }
-    handleFirestoreError(error, OperationType.WRITE, salePath);
-  }
+  );
+  return result.sale;
 }
 
 export async function adjustStockInFirestore(
@@ -968,90 +864,43 @@ export async function adjustStockInFirestore(
     locationId?: string;
   }
 ) {
-  if (!db) return;
-  const path = `businesses/${businessId}/products/${params.productId}`;
-  try {
-    await runTransaction(db, async (tx) => {
-      const prodRef = doc(db!, 'businesses', businessId, 'products', params.productId);
-      const snap = await tx.get(prodRef);
-      if (!snap.exists()) throw new Error('Product not found.');
-
-      const previousStock = Number(snap.data().stockQuantity ?? 0);
-      let newStock = previousStock;
-      let delta = 0;
-
-      if (params.type === 'in') {
-        delta = Math.abs(Math.floor(params.quantityChange));
-        newStock = previousStock + delta;
-      } else if (params.type === 'out') {
-        delta = -Math.abs(Math.floor(params.quantityChange));
-        newStock = previousStock + delta;
-      } else {
-        newStock = Math.max(0, Math.floor(params.quantityChange));
-        delta = newStock - previousStock;
-      }
-
-      if (newStock < 0) {
-        throw new Error(`Adjustment would result in negative stock (${newStock}).`);
-      }
-
-      tx.update(prodRef, {
-        stockQuantity: newStock,
-        updatedAt: serverTimestamp(),
-      });
-
-      const movId = generateId('mov');
-      tx.set(
-        doc(db!, 'businesses', businessId, 'stockMovements', movId),
-        omitUndefined({
-          id: movId,
-          businessId,
-          productId: params.productId,
-          productName: String(snap.data().name).slice(0, 140),
-          locationId: cleanStr(params.locationId ?? snap.data().locationId, 128),
-          type: params.type,
-          quantityDelta: delta,
-          previousStock,
-          newStock,
-          reason: params.reason.trim().slice(0, FIELD_LIMITS.REASON_MAX),
-          actorUid: params.actorUid,
-          actorName: params.actorName.slice(0, 120),
-          createdAt: serverTimestamp(),
-        })
-      );
-    });
-  } catch (error) {
-    if (error instanceof Error && (error.message.includes('negative stock') || error.message.includes('not found'))) {
-      throw error;
-    }
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+  await callTrustedPosApi(
+    '/api/businesses/' + encodeURIComponent(businessId) + '/products/' + encodeURIComponent(params.productId) + '/stock-adjustments',
+    { requestId: generateId('adj'), type: params.type, quantityChange: params.quantityChange, reason: params.reason, locationId: params.locationId }
+  );
 }
 
-export async function createPurchaseOrderInFirestore(
+export async function refundSaleInFirestore(
   businessId: string,
-  po: Omit<PurchaseOrder, 'createdAt' | 'updatedAt'>
+  saleId: string,
+  _actorUid: string,
+  _actorName: string
 ) {
-  if (!db) return;
-  const path = `businesses/${businessId}/purchases/${po.id}`;
+  await callTrustedPosApi(
+    '/api/businesses/' + encodeURIComponent(businessId) + '/sales/' + encodeURIComponent(saleId) + '/refund',
+    {}
+  );
+}
+
+
+export async function createPurchaseOrderInFirestore(businessId: string, purchase: PurchaseOrder): Promise<void> {
+  if (!db) throw new Error('Firestore is not initialized.');
+  const path = 'businesses/' + businessId + '/purchases/' + purchase.id;
   try {
-    await setDoc(
-      doc(db, 'businesses', businessId, 'purchases', po.id),
-      omitUndefined({
-        id: po.id,
-        businessId,
-        purchaseNumber: po.purchaseNumber,
-        supplierId: po.supplierId,
-        supplierName: po.supplierName.slice(0, 140),
-        locationId: cleanStr(po.locationId, 128),
-        items: po.items,
-        totalCost: roundMoney(po.totalCost),
-        status: po.status,
-        createdByUid: po.createdByUid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      })
-    );
+    await setDoc(doc(db, 'businesses', businessId, 'purchases', purchase.id), omitUndefined({
+      id: purchase.id,
+      businessId,
+      purchaseNumber: purchase.purchaseNumber,
+      supplierId: purchase.supplierId,
+      supplierName: purchase.supplierName,
+      locationId: purchase.locationId,
+      items: purchase.items,
+      totalCost: roundMoney(purchase.totalCost),
+      status: 'ordered',
+      createdByUid: auth?.currentUser?.uid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
@@ -1060,78 +909,13 @@ export async function createPurchaseOrderInFirestore(
 export async function receivePurchaseOrderInFirestore(
   businessId: string,
   purchaseId: string,
-  actorUid: string,
-  actorName: string
-) {
-  if (!db) return;
-  const path = `businesses/${businessId}/purchases/${purchaseId}`;
-  try {
-    await runTransaction(db, async (tx) => {
-      const poRef = doc(db!, 'businesses', businessId, 'purchases', purchaseId);
-      const poSnap = await tx.get(poRef);
-      if (!poSnap.exists()) throw new Error('Purchase order not found.');
-      if (poSnap.data().status !== 'ordered') {
-        throw new Error('Only pending purchase orders can be marked as received.');
-      }
-
-      const items = (poSnap.data().items as PurchaseOrder['items']) ?? [];
-      const prodSnaps = await Promise.all(
-        items.map((i) => tx.get(doc(db!, 'businesses', businessId, 'products', i.productId)))
-      );
-
-      tx.update(poRef, {
-        status: 'received',
-        updatedAt: serverTimestamp(),
-      });
-
-      for (let idx = 0; idx < items.length; idx++) {
-        const item = items[idx];
-        const snap = prodSnaps[idx];
-        if (!snap.exists()) continue;
-        const prev = Number(snap.data().stockQuantity ?? 0);
-        const next = prev + item.quantity;
-        tx.update(snap.ref, {
-          stockQuantity: next,
-          updatedAt: serverTimestamp(),
-        });
-
-        const movId = generateId('mov');
-        tx.set(
-          doc(db!, 'businesses', businessId, 'stockMovements', movId),
-          omitUndefined({
-            id: movId,
-            businessId,
-            productId: item.productId,
-            productName: item.productName.slice(0, 140),
-            locationId: poSnap.data().locationId ? String(poSnap.data().locationId) : undefined,
-            type: 'purchase',
-            quantityDelta: item.quantity,
-            previousStock: prev,
-            newStock: next,
-            reason: `Received Purchase ${poSnap.data().purchaseNumber}`,
-            referenceId: purchaseId,
-            actorUid,
-            actorName: actorName.slice(0, 120),
-            createdAt: serverTimestamp(),
-          })
-        );
-      }
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
-}
-
-export async function refundSaleInFirestore(businessId: string, saleId: string) {
-  if (!db) return;
-  const path = `businesses/${businessId}/sales/${saleId}`;
-  try {
-    await updateDoc(doc(db, 'businesses', businessId, 'sales', saleId), {
-      status: 'refunded',
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  _actorUid: string,
+  _actorName: string
+): Promise<void> {
+  await callTrustedPosApi(
+    '/api/businesses/' + encodeURIComponent(businessId) + '/purchases/' + encodeURIComponent(purchaseId) + '/receive',
+    {}
+  );
 }
 
 export async function saveEmployeeInFirestore(
