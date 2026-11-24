@@ -231,9 +231,45 @@ const fsEncode = (v: any): any => v === null || v === undefined ? { nullValue: n
 const fsDecode = (v: any): any => !v ? null : 'stringValue' in v ? v.stringValue : 'integerValue' in v ? Number(v.integerValue) : 'doubleValue' in v ? Number(v.doubleValue) : 'booleanValue' in v ? v.booleanValue : 'timestampValue' in v ? v.timestampValue : 'arrayValue' in v ? (v.arrayValue.values || []).map(fsDecode) : 'mapValue' in v ? Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k,x]) => [k,fsDecode(x)])) : null;
 async function serverFirebaseToken(): Promise<string> {
   if (saCache && saCache.expires > Date.now() + 60000) return saCache.token;
+
+  // On Cloud Run, prefer the attached runtime service account. This avoids
+  // storing a long-lived private key in the deployment environment.
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  if (!serviceAccountJson) {
+    try {
+      const response = await fetch(
+        'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
+        {
+          headers: { 'Metadata-Flavor': 'Google' },
+          signal: AbortSignal.timeout(3000),
+        }
+      );
+      if (!response.ok) throw new Error('Metadata token request failed.');
+      const token = await response.json() as { access_token?: string; expires_in?: number };
+      if (typeof token.access_token !== 'string' || !token.access_token) {
+        throw new Error('Metadata server returned no access token.');
+      }
+      const expiresIn = Number.isFinite(token.expires_in) && (token.expires_in ?? 0) > 0
+        ? token.expires_in as number
+        : 3600;
+      saCache = { token: token.access_token, expires: Date.now() + expiresIn * 1000 };
+      return token.access_token;
+    } catch {
+      throw Object.assign(
+        new Error('No Firebase server identity is available. On Cloud Run, grant the runtime service account Firestore access; locally, configure FIREBASE_SERVICE_ACCOUNT_JSON.'),
+        { statusCode: 503 }
+      );
+    }
+  }
+
   let sa: SA;
-  try { sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || ''); if (!sa.client_email || !sa.private_key) throw new Error(); }
-  catch { throw Object.assign(new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not configured.'), { statusCode: 503 }); }
+  try {
+    sa = JSON.parse(serviceAccountJson);
+    if (!sa.client_email || !sa.private_key) throw new Error();
+  } catch {
+    throw Object.assign(new Error('FIREBASE_SERVICE_ACCOUNT_JSON is invalid.'), { statusCode: 503 });
+  }
+
   const now = Math.floor(Date.now() / 1000), aud = sa.token_uri || 'https://oauth2.googleapis.com/token';
   const b64 = (x: string) => Buffer.from(x).toString('base64url');
   const unsigned = b64(JSON.stringify({ alg: 'RS256', typ: 'JWT' })) + '.' + b64(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore', aud, iat: now, exp: now + 3600 }));
@@ -241,7 +277,7 @@ async function serverFirebaseToken(): Promise<string> {
   const assertion = unsigned + '.' + signer.sign(sa.private_key).toString('base64url');
   const response = await fetch(aud, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
   if (!response.ok) throw Object.assign(new Error('Firebase server authentication failed.'), { statusCode: 503 });
-  const token = await response.json() as any;
+  const token = await response.json() as { access_token: string; expires_in?: number };
   saCache = { token: token.access_token, expires: Date.now() + (token.expires_in || 3600) * 1000 };
   return token.access_token;
 }
